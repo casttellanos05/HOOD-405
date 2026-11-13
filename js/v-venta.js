@@ -2,7 +2,7 @@
 (function () {
   const { h, money } = UI;
   const Views = (window.Views = window.Views || {});
-  const est = { cart: {}, q: '', cod: '', pago: '' };
+  const est = { cart: {}, q: '', cod: '', pago: '', max: 40 };
 
   const esCredApart = f => /cr[eé]dito|apartado/i.test(f);
   const productos = db => db.productos.filter(r => r[0] !== '' && r[0] != null && HOOD.activoProd(r));
@@ -83,24 +83,30 @@
       const carro = h('div', { class: 'card carrito sticky' });
       let buscador = null;
 
+      /** Lista de productos: sin texto muestra todos (por código); al escribir se filtra y se resalta lo que coincide con el código. */
       function pintarProductos() {
         UI.vaciar(resultados);
-        const q = est.q.trim();
-        if (!q) { resultados.appendChild(h('div', { class: 'pista' }, h('div', { class: 'fuerte' }, 'Escribe o escanea el código del producto'), h('small', null, 'También puedes buscar por nombre, talla o color. Aquí solo aparece lo que buscas.'))); return; }
-        const todos = buscarProductos(db, q), lista = todos.slice(0, 40);
-        if (!lista.length) { resultados.appendChild(UI.vacio('Ningún producto con “' + q + '”')); return; }
-        resultados.appendChild(h('div', { class: 'res-cab' }, todos.length + (todos.length === 1 ? ' resultado' : ' resultados') + (todos.length > 40 ? ' · mostrando 40, escribe más del código para acotar' : '')));
-        lista.forEach(({ p }) => {
+        const q = est.q.trim(), nq = UI.norm(q);
+        const todos = q ? buscarProductos(db, q).map(x => x.p) : productos(db).slice().sort((a, b) => String(a[0]).localeCompare(String(b[0]), 'es', { numeric: true }));
+        if (!todos.length) { resultados.appendChild(UI.vacio(q ? 'Ningún producto con “' + q + '”' : 'Todavía no hay productos. El dueño los da de alta en Inventario.')); return; }
+        const lista = todos.slice(0, est.max);
+        resultados.appendChild(h('div', { class: 'res-cab' }, todos.length + (todos.length === 1 ? ' producto' : ' productos') + (q ? '' : ' · escribe el código para filtrar')));
+        const codigo = c => {
+          const t = String(c), i = nq ? UI.norm(t).indexOf(nq) : -1;
+          return i < 0 ? t : h('span', null, t.slice(0, i), h('b', { class: 'coin' }, t.slice(i, i + nq.length)), t.slice(i + nq.length));
+        };
+        lista.forEach(p => {
           const c = p[0], disp = HOOD.num(p[HOOD.CPR.DISP]), en = est.cart[c] || 0, min = HOOD.num(p[HOOD.CPR.MIN]);
           resultados.appendChild(h('button', { type: 'button', class: 'res ' + (disp <= 0 ? 'agotado' : disp <= min ? 'bajo' : ''), disabled: disp <= 0, onclick: () => { agregar(c); limpiarBusqueda(); } },
-            h('span', { class: 'cod' }, String(c)),
+            h('span', { class: 'cod' }, codigo(c)),
             h('span', { class: 'desc' }, h('span', { class: 'n' }, p[HOOD.CPR.NOMBRE]), h('small', null, [p[HOOD.CPR.TALLA], p[HOOD.CPR.COLOR]].filter(Boolean).join(' · '))),
             h('span', { class: 'ex' }, disp <= 0 ? 'Agotado' : (disp - en) + ' disp.' + (en ? ' · ' + en + ' en carrito' : '')),
             h('span', { class: 'pr num' }, money(p[HOOD.CPR.PRECIO])),
             h('span', { class: 'mas' }, disp <= 0 ? '' : '+')));
         });
+        if (todos.length > est.max) resultados.appendChild(h('button', { class: 'btn', type: 'button', onclick: () => { est.max += 40; pintarProductos(); } }, 'Mostrar 40 más (' + (todos.length - est.max) + ' restantes)'));
       }
-      function limpiarBusqueda() { est.q = ''; if (buscador) { buscador.value = ''; buscador.focus(); } pintarProductos(); }
+      function limpiarBusqueda() { est.q = ''; est.max = 40; if (buscador) { buscador.value = ''; buscador.focus(); } pintarProductos(); }
       function agregar(c) {
         const p = porCodigo(db, c), disp = HOOD.num(p[HOOD.CPR.DISP]);
         if ((est.cart[c] || 0) + 1 > disp) { UI.toast('No hay más existencia de ' + HOOD.textoProd(p), 'mal'); return; }
@@ -275,7 +281,7 @@
       }
 
       buscador = UI.entrada({ type: 'search', class: 'busca-grande', placeholder: 'Código del producto…', value: est.q, autocomplete: 'off', autocapitalize: 'characters', enterkeyhint: 'search',
-        oninput: ev => { est.q = ev.target.value; pintarProductos(); }, onkeydown: ev => { if (ev.key === 'Enter') { ev.preventDefault(); enter(); } } });
+        oninput: ev => { est.q = ev.target.value; est.max = 40; pintarProductos(); }, onkeydown: ev => { if (ev.key === 'Enter') { ev.preventDefault(); enter(); } } });
       root.appendChild(h('div', { class: 'venta' },
         h('div', { class: 'col-buscar' }, metaBarra(db), h('div', { class: 'buscar' }, buscador), resultados),
         carro));

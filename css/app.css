@@ -216,3 +216,8 @@ tfoot td { font-weight: 800; border-top: 2px solid var(--line); border-bottom: 0
 .item.baja { opacity: .65; }
 
 .seg { max-width: 100%; overflow-x: auto; scrollbar-width: none; } .seg::-webkit-scrollbar { display: none; } .seg button { white-space: nowrap; }
+
+/* ---------- lista de productos en Venta: con su propio desplazamiento para no tapar el carrito ---------- */
+.col-buscar .resultados { max-height: 48vh; overflow-y: auto; padding-right: 2px; -webkit-overflow-scrolling: touch; }
+@media (min-width: 900px) { .col-buscar .resultados { max-height: calc(100vh - 190px); } }
+.res .cod b.coin { background: var(--info-bg); color: var(--ink); border-radius: 3px; padding: 0 1px; }
