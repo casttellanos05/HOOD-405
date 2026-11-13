@@ -171,9 +171,9 @@ const Store = (() => {
   }
 
   /** Consultas de solo lectura al servidor (cuenta de un cliente, apartados de un cliente). */
-  async function consultar(a, tel) {
+  async function consultar(a, tel, monto) {
     if (!S.user) return { ok: false, msg: 'Inicia sesión' };
-    try { const r = await llamar({ a, k: S.key, tel }, 30000); S.online = true; return r; }
+    try { const r = await llamar({ a, k: S.key, tel, monto }, 30000); S.online = true; return r; }
     catch (e) { if (esRed(e)) { S.online = false; emit('status'); return { ok: false, red: true, msg: 'Sin conexión. Esta consulta necesita internet.' }; } return { ok: false, msg: e.message }; }
   }
 

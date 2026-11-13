@@ -6,11 +6,12 @@
   const clon = x => JSON.parse(JSON.stringify(x));
   const porc = v => Math.round(HOOD.num(v) * 10000) / 100;            // 0.1 -> 10
   const dePorc = v => Math.max(0, Math.min(1, Math.round(UI.leerNum(v) * 100) / 10000)); // 10 -> 0.1
-  const CLAVES = ['vendedores', 'codigos', 'metas', 'periodoMetas', 'plazoCredito', 'plazoApartado', 'minApartado', 'avisoDias', 'comTarjeta', 'fondo'];
+  const CLAVES = ['vendedores', 'codigos', 'metas', 'periodoMetas', 'plazoCredito', 'plazoApartado', 'minApartado', 'avisoDias', 'comTarjeta', 'fondo', 'catGastos'];
   const sucio = () => JSON.stringify(CLAVES.map(k => borrador[k])) !== original;
 
   function cargar(db) {
     const base = {}; CLAVES.forEach(k => { base[k] = clon(db.config[k]); });
+    if (!base.catGastos || !base.catGastos.length) base.catGastos = HOOD.CAT_GASTOS_BASE.slice();
     original = JSON.stringify(CLAVES.map(k => base[k]));
     borrador = Object.assign(clon(db.config), base);
   }
@@ -40,17 +41,22 @@
         B.vendedores.forEach((v, i) => {
           const esViejo = existentes.indexOf(v.nombre) >= 0 && i < existentes.length;
           tv.appendChild(h('div', { class: 'card', style: { background: '#fff', boxShadow: 'none', border: '1px solid var(--line)' } },
-            h('div', { class: 'cab' }, h('div', { class: 'fuerte' }, v.nombre || 'Vendedor nuevo'), !esViejo ? h('button', { class: 'btn chico ghost', type: 'button', onclick: () => { B.vendedores.splice(i, 1); pintarV(); marcar(); } }, 'Quitar') : UI.badge(v.baja ? 'De baja' : 'Activo', v.baja ? 'mal' : 'ok')),
+            h('div', { class: 'cab' }, h('div', { class: 'fuerte' }, v.nombre || 'Vendedor nuevo'), !esViejo ? h('button', { class: 'btn chico ghost', type: 'button', onclick: () => { B.vendedores.splice(i, 1); pintarV(); marcar(); } }, 'Quitar') : UI.badge(v.baja && v.baja <= Store.hoy() ? 'De baja' : v.baja ? 'Baja ' + UI.fechaCorta(v.baja) : 'Activo', v.baja ? 'mal' : 'ok')),
             h('div', { class: 'grid2' }, UI.campo('Nombre', txt(v, 'nombre', { disabled: esViejo, oninput: ev => { v.nombre = ev.target.value; marcar(); } })), UI.campo('PIN de acceso', txt(v, 'pin', { type: 'text', placeholder: 'mínimo 4' }))),
             h('div', { class: 'grid3' }, UI.campo('Comisión (%)', pctIn(v, 'pct')),
               UI.campo('Se calcula sobre', h('select', { onchange: ev => { v.base = ev.target.value; marcar(); } }, UI.opciones([['Utilidad', 'La utilidad'], ['Total', 'El valor total vendido']], v.base))),
-              UI.campo('Sueldo fijo semanal', num(v, 'sueldo'))),
-            h('div', { class: 'grid2' }, UI.campo('Fecha de alta', fecha(v, 'alta'), 'El sueldo corre desde esta semana.'), UI.campo('Fecha de baja', fecha(v, 'baja'), 'Con baja ya no puede entrar. No se borra: conserva su historial.'))));
+              UI.campo('Pago semanal (sueldo fijo)', num(v, 'sueldo'))),
+            h('div', { class: 'grid2' }, UI.campo('Fecha de alta', fecha(v, 'alta'), 'El sueldo corre desde esta semana.'), UI.campo('Fecha de baja', fecha(v, 'baja'), 'Con baja ya no puede entrar. No se borra: conserva su historial.')),
+            esViejo ? (v.baja ? h('button', { class: 'btn chico', type: 'button', onclick: () => { v.baja = ''; pintarV(); marcar(); } }, 'Reactivar a ' + v.nombre)
+              : h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
+                if (!await UI.confirmar('Quitar a ' + v.nombre, 'Ya no podrá entrar a la app ni se le cargará sueldo. Su historial de ventas, comisiones y pagos se conserva. Lo que se le deba sigue pendiente en Corte semanal. Después de confirmar, pulsa "Guardar cambios".', 'Quitar empleado', true)) return;
+                v.baja = Store.hoy(); pintarV(); marcar();
+              } }, 'Quitar empleado (conserva su historial)')) : null));
         });
         if (B.vendedores.length < 10) tv.appendChild(h('button', { class: 'btn', type: 'button', onclick: () => { B.vendedores.push({ nombre: '', pin: '', pct: 0.05, base: 'Utilidad', sueldo: 0, alta: Store.hoy(), baja: '' }); pintarV(); marcar(); } }, UI.icono('mas'), 'Agregar vendedor'));
       }
       pintarV();
-      root.appendChild(seccion('Vendedores y comisiones', 'Cada vendedor entra con su PIN. La comisión se guarda en cada venta con el porcentaje vigente en ese momento.', tv));
+      root.appendChild(seccion('Empleados: pago semanal y comisiones', 'Cada empleado entra con su PIN. Aquí se registra su pago semanal; las comisiones se suman solas en Corte semanal. La comisión se guarda en cada venta con el porcentaje vigente en ese momento.', tv));
 
       /* ----- códigos ----- */
       const tc = h('div');
@@ -66,6 +72,21 @@
       }
       pintarC();
       root.appendChild(seccion('Códigos de descuento', 'El vendedor escribe el código al cobrar; no puede ver la lista de códigos.', tc));
+
+      /* ----- categorías de gasto ----- */
+      const tg = h('div');
+      function pintarG() {
+        UI.vaciar(tg);
+        const usadas = {}; db.gastos.forEach(g => { if (HOOD.num(g[HOOD.CG.MONTO]) > 0) usadas[String(g[HOOD.CG.CAT] || '').toLowerCase()] = 1; });
+        tg.appendChild(h('div', { class: 'chips-cat' }, B.catGastos.map((c, i) => h('span', { class: 'chip-cat' }, c,
+          HOOD.esSueldos(c) ? h('small', null, ' (fija)') : usadas[c.toLowerCase()] ? h('small', null, ' (en uso)') : h('button', { type: 'button', 'aria-label': 'Quitar ' + c, onclick: () => { B.catGastos.splice(i, 1); pintarG(); marcar(); } }, '×')))));
+        const nueva = UI.entrada({ placeholder: 'Ej. Publicidad en redes', maxlength: 40 });
+        const agregar = () => { const n = nueva.value.replace(/[,;|]/g, ' ').replace(/\s+/g, ' ').trim(); if (!n) return; if (B.catGastos.some(c => c.toLowerCase() === n.toLowerCase())) { UI.toast('Esa categoría ya existe', 'mal'); return; } B.catGastos.push(n); pintarG(); marcar(); };
+        nueva.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); agregar(); } });
+        tg.appendChild(h('div', { class: 'fila', style: { marginTop: '10px' } }, h('div', { style: { flex: 1 } }, nueva), h('button', { class: 'btn', type: 'button', onclick: agregar }, UI.icono('mas'), 'Agregar categoría')));
+      }
+      pintarG();
+      root.appendChild(seccion('Categorías de gasto', 'Son las opciones que aparecen al registrar un gasto. "Sueldos" se llena sola con los pagos del Corte semanal.', tg));
 
       /* ----- plazos y cobros ----- */
       root.appendChild(h('div', { class: 'cols dos' },

@@ -133,6 +133,33 @@ const UI = (() => {
     cont.appendChild(h('div', { class: 'leyenda' }, leyenda.map((t, k) => h('span', null, h('i', { style: { background: colores[k] } }), t))));
     return cont;
   }
+  /* ---------- gráfica de líneas (SVG) ---------- */
+  /** datos: [{et, v:[a,b]}] ; series: [{nombre, color, area}] ; alto opcional. Un punto por dato; pasa el cursor o toca un punto para ver el monto. */
+  function lineas(datos, series, alto) {
+    const W = 640, H = alto || 220, L = 46, B = 26, T = 12, R = 12;
+    const vals = datos.reduce((a, d) => a.concat(d.v), []);
+    const max = Math.max(1, ...vals), min = Math.min(0, ...vals);
+    const rango = max - min, y = v => T + (H - T - B) * (1 - (v - min) / rango);
+    const n = datos.length, x = i => n === 1 ? (L + W - R) / 2 : L + (W - L - R) * i / (n - 1);
+    const paso = nice(rango / 4);
+    let svg = '';
+    for (let v = Math.ceil(min / paso) * paso; v <= max + 1e-9; v += paso) {
+      svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" class="g-linea"/><text x="${L - 6}" y="${y(v) + 4}" class="g-eje" text-anchor="end">${esc(abrev(v))}</text>`;
+    }
+    if (min < 0) svg += `<line x1="${L}" x2="${W - R}" y1="${y(0)}" y2="${y(0)}" class="g-cero"/>`;
+    const salto = Math.ceil(n / 12);
+    datos.forEach((d, i) => { if (i % salto === 0) svg += `<text x="${x(i)}" y="${H - 8}" class="g-eje" text-anchor="${x(i) > W - 34 ? 'end' : x(i) < L + 12 ? 'start' : 'middle'}">${esc(d.et)}</text>`; });
+    series.forEach((s, k) => {
+      const pts = datos.map((d, i) => `${x(i).toFixed(1)},${y(d.v[k]).toFixed(1)}`).join(' ');
+      if (s.area && n > 1) svg += `<polygon points="${x(0).toFixed(1)},${y(0).toFixed(1)} ${pts} ${x(n - 1).toFixed(1)},${y(0).toFixed(1)}" fill="${s.color}" opacity=".12"/>`;
+      svg += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2.6" stroke-linejoin="round" stroke-linecap="round"/>`;
+      datos.forEach((d, i) => { svg += `<circle cx="${x(i).toFixed(1)}" cy="${y(d.v[k]).toFixed(1)}" r="${n > 20 ? 3 : 4.5}" fill="#fff" stroke="${s.color}" stroke-width="2.2"><title>${esc(d.et)} · ${esc(s.nombre)}: ${esc(money(d.v[k]))}</title></circle>`; });
+    });
+    const cont = h('div', { class: 'grafica' });
+    cont.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Gráfica de líneas">${svg}</svg>`;
+    if (series.length > 1) cont.appendChild(h('div', { class: 'leyenda' }, series.map(s => h('span', null, h('i', { style: { background: s.color } }), s.nombre))));
+    return cont;
+  }
   function nice(x) { const e = Math.pow(10, Math.floor(Math.log10(x || 1))), f = x / e; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * e; }
   function abrev(v) { const a = Math.abs(v); return (v < 0 ? '-' : '') + (a >= 1e6 ? (a / 1e6).toFixed(1) + 'M' : a >= 1e3 ? Math.round(a / 100) / 10 + 'k' : Math.round(a)); }
 
@@ -156,5 +183,5 @@ const UI = (() => {
   };
   const icono = (n, cls) => { const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('class', 'ico ' + (cls || '')); s.setAttribute('aria-hidden', 'true'); const p = document.createElementNS('http://www.w3.org/2000/svg', 'path'); p.setAttribute('d', ICONOS[n] || ''); s.appendChild(p); return s; };
 
-  return { h, $, vaciar, money, money0, num, pct, fecha, fechaCorta, diaSemana, mesLargo, hora, dias, hoyLocal, horaLocal, esc, norm, toast, modal, hayModal, confirmar, campo, entrada, dinero, opciones, leerNum, segmentos, badge, kpi, vacio, barras, progreso, icono };
+  return { h, $, vaciar, money, money0, num, pct, fecha, fechaCorta, diaSemana, mesLargo, hora, dias, hoyLocal, horaLocal, esc, norm, toast, modal, hayModal, confirmar, campo, entrada, dinero, opciones, leerNum, segmentos, badge, kpi, vacio, barras, lineas, progreso, icono };
 })();

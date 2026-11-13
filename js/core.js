@@ -123,9 +123,12 @@ var HOOD = (function () {
   /* ============================================================
    * 3. BASE DE DATOS EN MEMORIA
    * ============================================================ */
+  const CAT_GASTOS_BASE = ['Sueldos', 'Remodelación local', 'Productos de limpieza', 'Mantenimiento', 'Marketing', 'Otros'];
+  /** Los pagos a empleados se guardan como gasto de categoría Sueldos (antes Nómina); no cuentan como gasto operativo porque ya van en la nómina devengada. */
+  const esSueldos = c => /^(n[oó]mina|sueldos?)$/i.test(String(c || '').trim());
   function configBase() {
     return { formas: ['Efectivo', 'Transferencia', 'Tarjeta'], duenoPass: '', duenoNombre: 'Dueño', vendedores: [], codigos: [],
-      plazoCredito: 40, periodoMetas: 'Semana', fondo: 0, metas: [], plazoApartado: 30, minApartado: 0.2, avisoDias: 5, comTarjeta: 0.08 };
+      plazoCredito: 40, periodoMetas: 'Semana', fondo: 0, metas: [], plazoApartado: 30, minApartado: 0.1, avisoDias: 5, comTarjeta: 0.08, catGastos: CAT_GASTOS_BASE.slice() };
   }
   function nuevaDb() {
     const db = { config: configBase() };
@@ -370,7 +373,7 @@ var HOOD = (function () {
     if (cred) {
       const c = creditos(db, hoy)[cred.cl.tel] || { saldo: 0 };
       primer = Math.min(cred.primer, neto);
-      if (c.saldo >= cred.cl.limite || c.saldo + neto - primer > cred.cl.limite) return { ok: false, msg: 'No se puede agregar la compra: límite de crédito alcanzado' };
+      if (c.saldo >= cred.cl.limite || c.saldo + neto - primer > cred.cl.limite) return { ok: false, msg: 'Sin crédito disponible: esta compra excede el crédito autorizado del cliente' };
       vence = sumaDias(hoy, num(db.config.plazoCredito) || 40);
     }
     const comTarjeta = /tarjeta/i.test(pago) ? r2(neto * num(db.config.comTarjeta)) : 0;
@@ -493,7 +496,7 @@ var HOOD = (function () {
     return n.length >= 3 ? n : '';
   }
 
-  const minApartado = db => { const v = db.config.minApartado; return v === '' || v == null ? 0.2 : pct(v); };
+  const minApartado = db => { const v = db.config.minApartado; return v === '' || v == null ? 0.1 : pct(v); };
 
   function opApartado(db, op, ctx) {
     const a = op.args || {}, st = sello(op), hoy = st.fecha;
@@ -636,8 +639,10 @@ var HOOD = (function () {
     const concepto = String(a.concepto || '').trim(), monto = r2(num(a.monto));
     if (concepto.length < 2) return { ok: false, msg: 'Escribe el concepto del gasto' };
     if (!(monto > 0)) return { ok: false, msg: 'El monto debe ser mayor a $0' };
-    const cat = String(a.cat || 'General').trim() || 'General';
-    if (/^n[oó]mina$/i.test(cat)) return { ok: false, msg: 'Los pagos a empleados se registran en Corte > Semanal' };
+    const cat = String(a.cat || 'Otros').trim() || 'Otros';
+    if (esSueldos(cat)) return { ok: false, msg: 'Los sueldos se pagan en Corte > Semanal, así se descuentan de lo que se le debe a cada empleado' };
+    const lista = db.config.catGastos && db.config.catGastos.length ? db.config.catGastos : CAT_GASTOS_BASE;
+    if (!lista.some(c => c.toLowerCase() === cat.toLowerCase())) return { ok: false, msg: 'Elige una categoría de la lista (nuevas categorías se agregan en Config)' };
     db.gastos.push([fechaArg(a.fecha, op), concepto, monto, sn(a.efectivo), cat, 'G' + st.tallo, String(a.notas || '')]);
     return { ok: true };
   }
@@ -646,7 +651,7 @@ var HOOD = (function () {
     const a = op.args || {};
     const g = db.gastos.find(r => r[CG.ID] === a.id);
     if (!g) return { ok: false, msg: 'Gasto no encontrado' };
-    if (g[CG.CAT] === 'Nómina') return { ok: false, msg: 'Anula el pago desde Corte > Semanal' };
+    if (esSueldos(g[CG.CAT])) return { ok: false, msg: 'Anula el pago desde Corte > Semanal' };
     if (num(g[CG.MONTO]) <= 0) return { ok: false, msg: 'Ese gasto ya estaba anulado' };
     g[CG.NOTAS] = (str(g[CG.NOTAS]) + ' · monto original $' + num(g[CG.MONTO]).toFixed(2)).replace(/^ · /, '');
     g[CG.CONCEPTO] = '[ANULADO] ' + g[CG.CONCEPTO];
@@ -664,7 +669,7 @@ var HOOD = (function () {
     if (!esFecha(a.semana)) return { ok: false, msg: 'Semana inválida' };
     const semana = lunesDe(a.semana), gid = 'G' + st.tallo;
     const concepto = 'Pago a ' + v.nombre + ' · semana del ' + semana.slice(8) + '/' + semana.slice(5, 7);
-    db.gastos.push([op.f, concepto, monto, a.forma === 'Efectivo' ? 'SI' : 'NO', 'Nómina', gid, String(a.nota || '')]);
+    db.gastos.push([op.f, concepto, monto, a.forma === 'Efectivo' ? 'SI' : 'NO', 'Sueldos', gid, String(a.nota || '')]);
     db.pagos.push(['PG' + st.tallo, op.f, st.hora, v.nombre, semana, monto, a.forma, String(a.nota || ''), gid]);
     return { ok: true };
   }
@@ -721,6 +726,19 @@ var HOOD = (function () {
     if (c.avisoDias !== undefined) o.avisoDias = entero(c.avisoDias, 0, 60, 5);
     if (c.minApartado !== undefined) o.minApartado = pct(c.minApartado);
     if (c.comTarjeta !== undefined) o.comTarjeta = Math.min(0.5, pct(c.comTarjeta));
+    if (c.catGastos !== undefined) {
+      const vistas = {}, cs = [];
+      for (const x of c.catGastos) {
+        const n = String(x || '').replace(/[,;|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 40);
+        if (!n || vistas[n.toLowerCase()]) continue;
+        vistas[n.toLowerCase()] = 1; cs.push(n);
+      }
+      if (!cs.some(x => esSueldos(x))) cs.unshift('Sueldos');
+      if (cs.length > 30) return { ok: false, msg: 'Máximo 30 categorías de gasto' };
+      // las categorías que ya tienen gastos registrados no se pierden
+      db.gastos.forEach(g => { const k = String(g[CG.CAT] || '').trim(); if (k && !esSueldos(k) && !vistas[k.toLowerCase()]) { vistas[k.toLowerCase()] = 1; cs.push(k); } });
+      o.catGastos = cs;
+    }
     if (c.fondo !== undefined) o.fondo = Math.max(0, r2(num(c.fondo)));
     if (c.periodoMetas !== undefined) o.periodoMetas = String(c.periodoMetas).toLowerCase() === 'mes' ? 'Mes' : 'Semana';
     if (c.metas !== undefined) o.metas = (c.metas || []).slice(0, 5).map(m => ({ monto: Math.max(0, r2(num(m.monto))), premio: String(m.premio || '').trim() })).filter(m => m.monto > 0).sort((x, y) => x.monto - y.monto);
@@ -917,8 +935,8 @@ var HOOD = (function () {
     db.gastos.forEach(g => {
       if (g[CG.FECHA] === '' || !en(g[CG.FECHA]) || num(g[CG.MONTO]) <= 0) return;
       const m = num(g[CG.MONTO]);
-      if (g[CG.CAT] === 'Nómina') o.nominaPagada += m; else { o.gastosOp += m; o.gastosPorConcepto[g[CG.CONCEPTO]] = r2((o.gastosPorConcepto[g[CG.CONCEPTO]] || 0) + m); }
-      const cat = g[CG.CAT] || 'General';
+      if (esSueldos(g[CG.CAT])) o.nominaPagada += m; else { o.gastosOp += m; o.gastosPorConcepto[g[CG.CONCEPTO]] = r2((o.gastosPorConcepto[g[CG.CONCEPTO]] || 0) + m); }
+      const cat = esSueldos(g[CG.CAT]) ? 'Sueldos' : (g[CG.CAT] || 'Otros');
       o.porCategoria[cat] = r2((o.porCategoria[cat] || 0) + m);
     });
     db.entradas.forEach(e => { if (e[CE.FECHA] !== '' && en(e[CE.FECHA])) o.reinversion += num(e[CE.TOTAL]); });
@@ -1028,11 +1046,11 @@ var HOOD = (function () {
   }
 
   /** Cuenta que ve el VENDEDOR. Solo avisa si el límite ya se alcanzó; nunca muestra el crédito disponible. */
-  function cuentaCliente(db, telRaw, hoy) {
+  function cuentaCliente(db, telRaw, hoy, monto) {
     const cl = clienteActivo(db, telRaw);
     if (!cl) return { ok: false, msg: 'No hay una cuenta con ese número' };
     const c = creditos(db, hoy)[cl.tel] || { compras: [], abonos: [], total: 0, pagado: 0, saldo: 0 };
-    return { ok: true, tel: cl.tel, nombre: cl.nombre, total: c.total, pagado: c.pagado, adeudado: c.saldo, bloqueado: c.saldo >= cl.limite,
+    return { ok: true, tel: cl.tel, nombre: cl.nombre, total: c.total, pagado: c.pagado, adeudado: c.saldo, bloqueado: c.saldo >= cl.limite, alcanza: monto === undefined ? undefined : r2(c.saldo + num(monto)) <= cl.limite,
       compras: c.compras.map(p => ({ fecha: p.fecha, limite: p.limite, total: p.total, pagado: p.pagado, saldo: p.saldo, estado: p.estado, items: p.items.join(', ') })).reverse(),
       abonos: c.abonos.map(a => ({ fecha: a.fecha, monto: a.monto, forma: a.forma })).reverse() };
   }
@@ -1111,7 +1129,7 @@ var HOOD = (function () {
     configBase, nuevaDb, normalizar, textoProd, activoProd, mapaProd, vendedorDe, clienteActivo, codigoInfo,
     recomputeDisp, recalcular, creditos, apartados, sincronizarApartados, revisarApartados, aplicar, aplicarSeguro, validarConfig,
     inventario, periodo, serie, corteDiario, nomina, nominaSemana, semanasNomina, listaCreditos, listaApartados, avisos,
-    cuentaCliente, cuentaApartados, meta, misComisiones, snapshotDueno, snapshotVendedor, minApartado };
+    cuentaCliente, cuentaApartados, meta, misComisiones, snapshotDueno, snapshotVendedor, minApartado, esSueldos, CAT_GASTOS_BASE };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = HOOD;

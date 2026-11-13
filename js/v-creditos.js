@@ -2,7 +2,7 @@
 (function () {
   const { h, money } = UI;
   const Views = (window.Views = window.Views || {});
-  const est = { filtro: 'deuda', q: '', tel: '', cuenta: null };
+  const est = { filtro: 'todos', q: '', tel: '', cuenta: null };
   const tipoEstado = e => ({ 'Vencido': 'mal', 'Por vencer': 'ambar', 'Vigente': 'info', 'Sin deuda': 'ok', 'Vencida': 'mal', 'Vigente ': 'info', 'Pagada': 'ok' }[e] || '');
   const dueno = () => Store.S.user.rol === 'dueno';
 
@@ -42,14 +42,14 @@
     const f = { tel: UI.entrada({ type: 'tel', inputmode: 'numeric', value: c ? c.tel : '', maxlength: 14, disabled: !!c }), nombre: UI.entrada({ value: c ? c.nombre : '', placeholder: 'Nombre completo' }),
       limite: UI.dinero({ value: c ? c.limite : '', placeholder: '0.00' }), activo: h('input', { type: 'checkbox', checked: c ? c.activo : true }) };
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
-    UI.modal({ titulo: c ? 'Editar cliente' : 'Nuevo cliente con crédito', ancho: '440px', cuerpo: h('div', null, UI.campo('Celular (10 dígitos)', f.tel), UI.campo('Nombre completo', f.nombre),
-      UI.campo('Límite de crédito', f.limite, 'Máximo que puede deber a la vez.'), h('label', { class: 'check' }, f.activo, 'Activo (puede comprar a crédito)'), msg),
+    UI.modal({ titulo: c ? 'Editar cliente de crédito' : 'Dar de alta cliente de crédito', ancho: '440px', cuerpo: h('div', null, UI.campo('Celular (10 dígitos)', f.tel), UI.campo('Nombre completo', f.nombre),
+      UI.campo('Límite de crédito', f.limite, 'Máximo que puede deber a la vez.'), h('label', { class: 'check' }, f.activo, 'Autorizado (puede comprar a crédito). Quita la palomita para darlo de baja.'), msg),
       acciones: [{ texto: 'Cancelar', tipo: 'ghost' }, { texto: 'Guardar', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
         btn.disabled = true;
         const r = await Store.hacer('cliente', { tel: f.tel.value, nombre: f.nombre.value, limite: UI.leerNum(f.limite.value), activo: f.activo.checked });
         btn.disabled = false;
         if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
-        cerrar(); UI.toast('Cliente guardado', 'ok'); App.refresh();
+        cerrar(); UI.toast(c ? 'Cliente actualizado' : 'Cliente dado de alta', 'ok'); App.refresh();
       } }] });
   }
 
@@ -61,24 +61,39 @@
         { texto: 'Registrar abono', tipo: 'primary', disabled: c.saldo <= 0, cerrar: false, onclick: () => { m.cerrar(); abonar(c.tel, c.nombre, c.saldo, () => App.refresh()); } }] });
   }
 
+  /** Da de baja / de alta a un cliente (conserva su historial y lo que debe). */
+  async function cambiarAlta(c) {
+    const baja = c.activo;
+    if (!await UI.confirmar(baja ? 'Dar de baja' : 'Dar de alta', baja ? c.nombre + ' ya no podrá comprar a crédito. Su historial y lo que debe se conservan y puede seguir abonando.' : c.nombre + ' volverá a poder comprar a crédito hasta su límite de ' + money(c.limite) + '.', baja ? 'Dar de baja' : 'Dar de alta', baja)) return;
+    const r = await Store.hacer('cliente', { tel: c.tel, nombre: c.nombre, limite: c.limite, activo: !baja });
+    if (!r.ok) { UI.toast(r.msg, 'mal', 5000); return; }
+    UI.toast(c.nombre + (baja ? ' dado de baja' : ' dado de alta'), 'ok'); App.refresh();
+  }
+
   function vistaDueno(root, db) {
     const hoy = Store.hoy(), lista = HOOD.listaCreditos(db, hoy);
     const deuda = lista.filter(c => c.saldo > 0), total = HOOD.r2(deuda.reduce((a, c) => a + c.saldo, 0));
     const venc = lista.filter(c => c.estado === 'Vencido'), por = lista.filter(c => c.estado === 'Por vencer');
-    root.appendChild(h('div', { class: 'titulo-vista' }, h('h2', null, 'Créditos'), h('button', { class: 'btn primary', type: 'button', onclick: () => editarCliente(null) }, UI.icono('mas'), 'Nuevo cliente')));
+    const autorizados = lista.filter(c => c.activo), bajas = lista.filter(c => !c.activo);
+    root.appendChild(h('div', { class: 'titulo-vista' }, h('h2', null, 'Créditos'), h('button', { class: 'btn primary', type: 'button', onclick: () => editarCliente(null) }, UI.icono('mas'), 'Dar de alta cliente')));
     root.appendChild(h('div', { class: 'kpis' }, UI.kpi('Por cobrar', money(total), deuda.length + ' clientes con deuda', total > 0 ? 'ambar' : 'ok'), UI.kpi('Vencidos', venc.length, money(venc.reduce((a, c) => a + c.saldo, 0)), venc.length ? 'mal' : 'ok'),
-      UI.kpi('Por vencer (≤ ' + db.config.avisoDias + ' días)', por.length, money(por.reduce((a, c) => a + c.saldo, 0)), por.length ? 'ambar' : 'ok'), UI.kpi('Clientes registrados', lista.length)));
+      UI.kpi('Por vencer (≤ ' + db.config.avisoDias + ' días)', por.length, money(por.reduce((a, c) => a + c.saldo, 0)), por.length ? 'ambar' : 'ok'), UI.kpi('Clientes autorizados', autorizados.length, bajas.length ? bajas.length + ' de baja' : 'a crédito')));
+    root.appendChild(h('div', { class: 'aviso info' }, 'Solo los clientes que das de alta aquí pueden comprar a crédito. Los apartados son aparte: cualquier persona puede apartar desde Venta.'));
     const caja = h('div', { class: 'card' });
     function pintar() {
       UI.vaciar(caja);
-      caja.appendChild(h('div', { class: 'fila', style: { marginBottom: '10px' } }, UI.segmentos([['deuda', 'Con deuda'], ['vencer', 'Vencidos y por vencer'], ['todos', 'Todos']], est.filtro, id => { est.filtro = id; pintar(); })));
+      caja.appendChild(h('div', { class: 'fila', style: { marginBottom: '10px' } }, UI.segmentos([['todos', 'Autorizados (' + autorizados.length + ')'], ['deuda', 'Con deuda'], ['vencer', 'Por vencer'], ['baja', 'De baja (' + bajas.length + ')']], est.filtro, id => { est.filtro = id; pintar(); })));
       const q = UI.norm(est.q);
-      const datos = lista.filter(c => (est.filtro === 'deuda' ? c.saldo > 0 : est.filtro === 'vencer' ? (c.estado === 'Vencido' || c.estado === 'Por vencer') : true) && (!q || UI.norm(c.nombre + ' ' + c.tel).indexOf(q) >= 0));
-      if (!datos.length) { caja.appendChild(UI.vacio(est.filtro === 'todos' ? 'Todavía no hay clientes con crédito. Agrega el primero con "Nuevo cliente".' : 'No hay clientes con ese filtro.')); return; }
-      caja.appendChild(h('div', { class: 'lista' }, datos.map(c => h('div', { class: 'item clic', onclick: () => detalleDueno(c) },
-        h('div', { class: 'grow' }, h('div', { class: 't1' }, c.nombre + (c.activo ? '' : ' (inactivo)')),
-          h('div', { class: 't2' }, c.tel + (c.saldo > 0 && c.prox ? ' · vence ' + UI.fechaCorta(c.prox) + ' (' + UI.dias(c.dias) + ')' : '')), c.limite ? UI.progreso(c.saldo / c.limite, c.saldo >= c.limite ? 'mal' : '') : null),
-        h('div', { style: { textAlign: 'right' } }, h('div', { class: 'monto' }, money(c.saldo)), UI.badge(c.estado, tipoEstado(c.estado)))))));
+      const datos = lista.filter(c => (est.filtro === 'baja' ? !c.activo : est.filtro === 'deuda' ? c.saldo > 0 : est.filtro === 'vencer' ? (c.estado === 'Vencido' || c.estado === 'Por vencer') : c.activo) && (!q || UI.norm(c.nombre + ' ' + c.tel).indexOf(q) >= 0))
+        .sort((a, b) => est.filtro === 'todos' || est.filtro === 'baja' ? a.nombre.localeCompare(b.nombre, 'es') : 0);
+      if (!datos.length) { caja.appendChild(UI.vacio(est.filtro === 'todos' ? 'Todavía no hay clientes autorizados. Agrega el primero con "Dar de alta cliente".' : 'No hay clientes con ese filtro.')); return; }
+      caja.appendChild(h('div', { class: 'lista' }, datos.map(c => h('div', { class: 'item clic' + (c.activo ? '' : ' baja'), onclick: () => detalleDueno(c) },
+        h('div', { class: 'grow' }, h('div', { class: 't1' }, c.nombre + (c.activo ? '' : ' (de baja)')),
+          h('div', { class: 't2' }, c.tel + ' · límite ' + money(c.limite) + (c.activo ? ' · disponible ' + money(c.disponible) : '')),
+          c.saldo > 0 && c.prox ? h('div', { class: 't2' }, 'Debe ' + money(c.saldo) + ' · vence ' + UI.fechaCorta(c.prox) + ' (' + UI.dias(c.dias) + ')') : null,
+          c.limite ? UI.progreso(c.saldo / c.limite, c.saldo >= c.limite ? 'mal' : '') : null),
+        h('div', { style: { textAlign: 'right', display: 'grid', gap: '6px' } }, h('div', { class: 'monto' }, money(c.saldo)), UI.badge(c.estado, tipoEstado(c.estado)),
+          h('button', { class: 'btn chico ' + (c.activo ? 'ghost' : 'primary'), type: 'button', onclick: ev => { ev.stopPropagation(); cambiarAlta(c); } }, c.activo ? 'Dar de baja' : 'Dar de alta'))))));
     }
     root.appendChild(h('div', { class: 'buscar' }, UI.entrada({ type: 'search', placeholder: 'Buscar por nombre o celular…', value: est.q, oninput: ev => { est.q = ev.target.value; pintar(); } })));
     root.appendChild(caja); pintar();
@@ -106,7 +121,7 @@
     }
     tel.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } });
     root.appendChild(h('div', { class: 'card' }, h('div', { class: 'fila' }, h('div', { style: { flex: 1, minWidth: '200px' } }, tel), h('button', { class: 'btn primary', type: 'button', onclick: buscar }, 'Consultar cuenta')),
-      h('small', null, 'Para vender a crédito, arma el carrito en Venta y elige "Crédito". Consultar cuentas y registrar abonos necesita internet.')));
+      h('small', null, 'Para vender a crédito, arma el carrito en Venta y elige "Crédito" (solo clientes dados de alta por el dueño). Consultar cuentas y registrar abonos necesita internet.')));
     root.appendChild(res);
     if (est.tel && HOOD.tel10(est.tel).length === 10 && navigator.onLine) buscar();
   }

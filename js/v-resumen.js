@@ -26,11 +26,20 @@
       root.appendChild(h('div', { class: 'kpis' }, UI.kpi('Vendido', money(p.vendido), p.tickets + ' tickets · ' + UI.num(p.articulos) + ' artículos'), UI.kpi('Comprado (reinversión)', money(p.reinversion), 'mercancía para el inventario'),
         UI.kpi('Cobrado', money(p.cobrado), 'contado + abonos', 'ok'), UI.kpi('Utilidad neta', money(p.utilNeta), 'después de gastos y nómina', p.utilNeta >= 0 ? 'ok' : 'mal')));
 
-      const serie = HOOD.serie(db, r.ini, r.fin, r.paso, hoy);
-      const et = s => r.paso === 'mes' ? UI.fechaCorta(s.ini).split(' ')[1] : (est.modo === 'semana' ? UI.diaSemana(s.ini) + ' ' + s.ini.slice(8) : s.ini.slice(8));
-      root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Movimiento ' + (r.paso === 'mes' ? 'por mes' : 'por día')),
-        UI.barras(serie.map(s => ({ et: et(s), v: [s.vendido, s.cobrado, s.neto] })), ['#8aa4ba', '#4c6a84', '#2f7d5b'], ['Vendido', 'Cobrado', 'Utilidad neta'], 230),
-        h('small', null, 'Pasa el cursor o toca una barra para ver el monto.')));
+      // Gráfica de líneas: ventas por mes del año que estás viendo
+      const anio = r.ini.slice(0, 4);
+      const meses = HOOD.serie(db, anio + '-01-01', anio + '-12-31', 'mes', hoy).filter(s => s.ini <= hoy);
+      const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+      root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Ventas por mes · ' + anio),
+        UI.lineas(meses.map(s => ({ et: MES[Number(s.ini.slice(5, 7)) - 1], v: est.modo === 'anio' ? [s.vendido, s.cobrado, s.neto] : [s.vendido] })),
+          est.modo === 'anio' ? [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#8aa4ba' }, { nombre: 'Utilidad neta', color: '#2f7d5b' }] : [{ nombre: 'Vendido', color: '#4c6a84', area: true }], 230),
+        h('small', null, 'Cada punto es un mes. Toca un punto para ver el monto.')));
+      if (est.modo !== 'anio') {
+        const serie = HOOD.serie(db, r.ini, r.fin, 'dia', hoy).filter(s => s.ini <= hoy);
+        const et = s => est.modo === 'semana' ? UI.diaSemana(s.ini) + ' ' + s.ini.slice(8) : s.ini.slice(8);
+        root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Movimiento por día · ' + r.etiqueta),
+          UI.lineas(serie.map(s => ({ et: et(s), v: [s.vendido, s.cobrado] })), [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#2f7d5b' }], 200)));
+      }
 
       // por cobrar (a hoy, no depende del periodo)
       const cred = HOOD.listaCreditos(db, hoy), ap = HOOD.listaApartados(db, hoy);
@@ -47,14 +56,11 @@
           Object.keys(p.abonosPorForma).length ? h('div', { style: { marginTop: '8px' } }, h('div', { class: 'muted fuerte' }, 'Abonos'), Object.keys(p.abonosPorForma).map(k => fila(k, money(p.abonosPorForma[k])))) : null,
           h('div', { style: { borderTop: '1px solid var(--line)', marginTop: '10px', paddingTop: '8px' } }, h('h3', null, 'Por cobrar hoy'), fila('Créditos de clientes', money(porCobrar), porCobrar > 0 ? 'ambar fuerte' : ''), fila('Saldo de apartados abiertos', money(apSaldo))))));
 
+      const cats = Object.keys(p.porCategoria).map(k => ({ c: k, m: p.porCategoria[k] })).sort((x, y) => y.m - x.m);
       root.appendChild(h('div', { class: 'cols dos' },
-        h('div', { class: 'card' }, h('h3', null, 'Productos más vendidos'), !p.productosTop.length ? UI.vacio('Sin ventas en el periodo.') : h('div', { class: 'tabla-wrap' }, h('table', null,
-          h('thead', null, h('tr', null, h('th', null, 'Producto'), h('th', { class: 'der' }, 'Piezas'), h('th', { class: 'der' }, 'Ventas'), h('th', { class: 'der' }, 'Utilidad'))),
-          h('tbody', null, p.productosTop.map(x => h('tr', null, h('td', null, x.producto), h('td', { class: 'der num' }, UI.num(x.piezas)), h('td', { class: 'der num' }, money(x.ventas)), h('td', { class: 'der num' }, money(x.util)))))))),
-        h('div', null,
-          h('div', { class: 'card' }, h('h3', null, 'Por vendedor'), !p.vendedores.length ? UI.vacio('Sin ventas en el periodo.') : p.vendedores.map(v => h('div', { class: 'item' },
-            h('div', { class: 'grow' }, h('div', { class: 't1' }, v.vendedor), h('div', { class: 't2' }, 'a crédito ' + money(v.credito) + ' · abonos ' + money(v.abonos) + ' · comisión ' + money(v.comision))), h('div', { class: 'monto' }, money(v.vendido))))),
-          h('div', { class: 'card' }, h('h3', null, 'Gastos del periodo'), !p.gastosLista.length ? UI.vacio('Sin gastos.') : p.gastosLista.slice(0, 12).map(g => fila(g.concepto, money(g.monto)))))));
+        h('div', { class: 'card' }, h('h3', null, 'Por vendedor'), !p.vendedores.length ? UI.vacio('Sin ventas en el periodo.') : p.vendedores.map(v => h('div', { class: 'item' },
+          h('div', { class: 'grow' }, h('div', { class: 't1' }, v.vendedor), h('div', { class: 't2' }, 'a crédito ' + money(v.credito) + ' · abonos ' + money(v.abonos) + ' · comisión ' + money(v.comision))), h('div', { class: 'monto' }, money(v.vendido))))),
+        h('div', { class: 'card' }, h('h3', null, 'Gastos por categoría'), !cats.length ? UI.vacio('Sin gastos en el periodo.') : cats.map(x => fila(x.c, money(x.m))))));
     }
   };
 })();

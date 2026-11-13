@@ -45,6 +45,11 @@
           UI.toast('Corte guardado · diferencia ' + money(r.diferencia), r.diferencia === 0 ? 'ok' : '', 5000); App.refresh();
         } }, c.corte ? 'Guardar otro corte de este día' : 'Cerrar corte del día'))));
 
+    // ----- línea: últimos 7 días -----
+    const ult = HOOD.serie(db, HOOD.sumaDias(fecha, -6), fecha, 'dia', hoy);
+    root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Últimos 7 días'),
+      UI.lineas(ult.map(d => ({ et: UI.diaSemana(d.ini) + ' ' + d.ini.slice(8), v: [d.cobrado, d.util] })), [{ nombre: 'Cobrado', color: '#4c6a84', area: true }, { nombre: 'Utilidad cobrada', color: '#2f7d5b' }], 190)));
+
     // ----- ventas del día -----
     root.appendChild(h('div', { class: 'cols dos' },
       h('div', { class: 'card' }, h('h3', null, 'Ventas del día'),
@@ -60,22 +65,34 @@
   }
 
   /* ---------- semanal ---------- */
-  function pagar(e, semana, pendiente) {
-    const db = Store.view();
-    const monto = UI.dinero({ value: pendiente > 0 ? pendiente : '' }), forma = h('select', null, UI.opciones(HOOD.ABONO_FORMAS)), nota = UI.entrada({ placeholder: 'Nota (opcional)' });
+  /** Paga a un empleado. El monto se aplica primero a las semanas más antiguas con saldo; lo que no se pague pasa a la semana siguiente como remanente. */
+  function pagar(e, semanaActual) {
+    const pend = e.atrasadas.map(a => ({ semana: a.semana, pendiente: a.pendiente })).concat(e.pendiente > 0.004 ? [{ semana: semanaActual, pendiente: e.pendiente }] : []).filter(x => x.pendiente > 0.004).sort((x, y) => x.semana.localeCompare(y.semana));
+    const total = HOOD.r2(pend.reduce((a, x) => a + x.pendiente, 0));
+    const monto = UI.dinero({ value: total > 0 ? total : '' }), forma = h('select', null, UI.opciones(HOOD.ABONO_FORMAS)), nota = UI.entrada({ placeholder: 'Nota (opcional)' });
+    const quedara = h('div', { class: 'aviso info' });
+    const calc = () => { const m = UI.leerNum(monto.value), resto = HOOD.r2(total - m); quedara.textContent = resto > 0.004 ? 'Quedará pendiente ' + money(resto) + ': pasa a la próxima semana como remanente.' : resto < -0.004 ? 'Es más de lo que se le debe (' + money(total) + ').' : 'Se paga todo lo que se le debe.'; };
+    monto.addEventListener('input', calc); calc();
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
     UI.modal({ titulo: 'Pagar a ' + e.nombre, cuerpo: h('div', null,
-      h('p', { class: 'muted' }, 'Semana del ' + UI.fecha(semana) + ' · pendiente ' + money(pendiente)),
-      h('div', { class: 'grid2' }, UI.campo('Monto a pagar', monto), UI.campo('Forma', forma)), UI.campo('Nota', nota), msg,
-      h('small', null, 'Se registra como gasto de Nómina y baja de la caja si pagas en efectivo. Puedes pagar una parte y dejar el resto pendiente.')),
+      h('div', { class: 'totales' }, pend.map(x => h('div', { class: 'f' }, h('span', null, x.semana === semanaActual ? 'Esta semana (sueldo + comisiones)' : 'Remanente de la semana del ' + UI.fecha(x.semana)), h('span', { class: 'num' }, money(x.pendiente)))),
+        h('div', { class: 'f t' }, h('span', null, 'Pago total'), h('span', { class: 'num' }, money(total)))),
+      h('div', { class: 'grid2' }, UI.campo('Monto que pagas ahora', monto), UI.campo('Forma', forma)), quedara, UI.campo('Nota', nota), msg,
+      h('small', null, 'Se registra como gasto en la categoría Sueldos y baja de la caja si pagas en efectivo.')),
       acciones: [{ texto: 'Cancelar', tipo: 'ghost' }, { texto: 'Registrar pago', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
+        let resto = HOOD.r2(UI.leerNum(monto.value));
+        if (!(resto > 0)) { msg.textContent = 'Escribe el monto que vas a pagar'; msg.style.display = ''; return; }
+        if (resto > total + 0.004) { msg.textContent = 'No puedes pagar más de lo que se le debe (' + money(total) + ')'; msg.style.display = ''; return; }
         btn.disabled = true;
-        const r = await Store.hacer('pago', { vendedor: e.nombre, semana, monto: UI.leerNum(monto.value), forma: forma.value, nota: nota.value });
-        btn.disabled = false;
-        if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
-        cerrar(); UI.toast('Pago registrado', 'ok'); App.refresh();
+        for (const x of pend) {
+          if (resto <= 0.004) break;
+          const parte = HOOD.r2(Math.min(resto, x.pendiente));
+          const r = await Store.hacer('pago', { vendedor: e.nombre, semana: x.semana, monto: parte, forma: forma.value, nota: nota.value });
+          if (!r.ok) { btn.disabled = false; msg.textContent = r.msg; msg.style.display = ''; App.refresh(); return; }
+          resto = HOOD.r2(resto - parte);
+        }
+        btn.disabled = false; cerrar(); UI.toast('Pago registrado', 'ok'); App.refresh();
       } }] });
-    return db;
   }
 
   function semanal(root, db) {
@@ -101,26 +118,30 @@
         h('div', { style: { borderTop: '1px solid var(--line)', marginTop: '6px', paddingTop: '6px' } }, fila('UTILIDAD NETA', money(p.utilNeta), 'fuerte ' + (p.utilNeta >= 0 ? 'ok' : 'mal'))),
         fila('Compras de mercancía (reinversión)', money(p.reinversion), 'muted'), fila('Pagado al equipo esta semana', money(p.nominaPagada), 'muted')),
       h('div', { class: 'card' }, h('h3', null, 'Día por día'),
-        UI.barras(dias.map(d => ({ et: UI.diaSemana(d.ini) + ' ' + UI.fechaCorta(d.ini).split(' ')[0], v: [d.cobrado, d.util] })), ['#4c6a84', '#2f7d5b'], ['Cobrado', 'Utilidad cobrada'], 200))));
+        UI.lineas(dias.filter(d => d.ini <= hoy).map(d => ({ et: UI.diaSemana(d.ini) + ' ' + d.ini.slice(8), v: [d.cobrado, d.util] })), [{ nombre: 'Cobrado', color: '#4c6a84', area: true }, { nombre: 'Utilidad cobrada', color: '#2f7d5b' }], 200))));
 
-    // ----- nómina -----
+    // ----- nómina: sueldo + comisiones (automático) + remanente = pago total -----
     const activos = nom.filter(e => e.devengado || e.pagado || e.pendienteTotal || e.atrasadas.length || !e.baja);
-    root.appendChild(h('div', { class: 'card' }, h('div', { class: 'cab' }, h('h3', null, 'Pago al equipo (sueldo + comisiones)'), pendienteTotal > 0 ? UI.badge('Pendiente ' + money(pendienteTotal), 'ambar') : UI.badge('Todo pagado', 'ok')),
-      !activos.length ? UI.vacio('Aún no hay vendedores. Agrégalos en Configuración.') : activos.map(e => h('div', { class: 'card', style: { background: '#fff', boxShadow: 'none', border: '1px solid var(--line)' } },
-        h('div', { class: 'cab' }, h('div', { class: 'fuerte' }, e.nombre + (e.baja ? ' (baja)' : '')), h('small', null, 'Comisión ' + UI.pct(e.pct) + ' sobre ' + (e.base === 'Total' ? 'valor total' : 'utilidad'))),
-        fila('Sueldo fijo de la semana', money(e.sueldo)), fila('Comisiones de la semana', money(e.comision)),
-        fila('Se le debe de esta semana', money(e.devengado), 'fuerte'), fila('Ya pagado', money(e.pagado)),
-        fila('Pendiente de esta semana', money(e.pendiente), e.pendiente > 0.004 ? 'fuerte ambar' : 'ok'),
-        e.pagos.length ? h('div', { style: { margin: '6px 0' } }, e.pagos.map(g => h('div', { class: 'fila sp', style: { fontSize: '13px' } },
-          h('span', { class: 'muted' }, UI.fecha(g.fecha) + ' · ' + g.forma + (g.nota ? ' · ' + g.nota : '')), h('span', null, h('span', { class: 'num' }, money(g.monto) + ' '),
-            g.monto > 0 ? h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
-              if (!await UI.confirmar('Anular pago', 'Se anula el pago de ' + money(g.monto) + ' a ' + e.nombre + ' y se quita de los gastos.', 'Anular pago', true)) return;
-              const r = await Store.hacer('pago_anular', { id: g.id }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Pago anulado'); App.refresh();
-            } }, 'Anular') : null)))) : null,
-        e.pendiente > 0.004 || (!e.pagos.length && e.devengado > 0) ? h('button', { class: 'btn acento', type: 'button', style: { marginTop: '6px' }, onclick: () => pagar(e, lunes, e.pendiente) }, 'Registrar pago de esta semana') : null,
-        e.atrasadas.length ? h('div', { class: 'aviso ambar', style: { marginTop: '10px', marginBottom: 0 } }, h('div', { class: 'fuerte' }, 'Semanas anteriores con saldo pendiente'),
-          e.atrasadas.map(a => h('div', { class: 'fila sp', style: { padding: '4px 0' } }, h('span', null, 'Semana del ' + UI.fecha(a.semana) + ': ' + money(a.pendiente)),
-            h('button', { class: 'btn chico', type: 'button', onclick: () => pagar(e, a.semana, a.pendiente) }, 'Pagar')))) : null))));
+    root.appendChild(h('div', { class: 'card' }, h('div', { class: 'cab' }, h('h3', null, 'Pago del equipo'), pendienteTotal > 0 ? UI.badge('Por pagar ' + money(pendienteTotal), 'ambar') : UI.badge('Todo pagado', 'ok')),
+      h('small', null, 'Las comisiones se suman solas al sueldo. Lo que no se pague pasa a la próxima semana como remanente.'),
+      !activos.length ? UI.vacio('Aún no hay empleados. Agrégalos en Config.') : activos.map(e => {
+        const remanente = HOOD.r2(e.atrasadas.reduce((a, x) => a + x.pendiente, 0)), totalPagar = e.pendienteTotal;
+        return h('div', { class: 'card', style: { background: '#fff', boxShadow: 'none', border: '1px solid var(--line)', marginTop: '10px' } },
+          h('div', { class: 'cab' }, h('div', { class: 'fuerte' }, e.nombre + (e.baja ? ' (baja)' : '')), h('small', null, 'Comisión ' + UI.pct(e.pct) + ' sobre ' + (e.base === 'Total' ? 'el valor total' : 'la utilidad'))),
+          fila('Sueldo semanal', money(e.sueldo)), fila('+ Comisiones de la semana', money(e.comision)),
+          remanente > 0.004 ? fila('+ Remanente de semanas pasadas', money(remanente), 'ambar fuerte') : null,
+          h('div', { style: { borderTop: '1px solid var(--line)', marginTop: '4px', paddingTop: '4px' } }, fila('PAGO TOTAL', money(e.devengado + remanente), 'fuerte')),
+          e.pagado > 0 ? fila('− Ya pagado esta semana', money(e.pagado)) : null,
+          fila('Por pagar', money(totalPagar), totalPagar > 0.004 ? 'fuerte ambar' : 'ok'),
+          e.pagos.length ? h('div', { style: { margin: '6px 0' } }, e.pagos.map(g => h('div', { class: 'fila sp', style: { fontSize: '13px' } },
+            h('span', { class: 'muted' }, UI.fecha(g.fecha) + ' · ' + g.forma + (g.nota ? ' · ' + g.nota : '')), h('span', null, h('span', { class: 'num' }, money(g.monto) + ' '),
+              g.monto > 0 ? h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
+                if (!await UI.confirmar('Anular pago', 'Se anula el pago de ' + money(g.monto) + ' a ' + e.nombre + ' y se quita de los gastos.', 'Anular pago', true)) return;
+                const r = await Store.hacer('pago_anular', { id: g.id }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Pago anulado'); App.refresh();
+              } }, 'Anular') : null)))) : null,
+          totalPagar > 0.004 ? h('button', { class: 'btn acento', type: 'button', style: { marginTop: '6px' }, onclick: () => pagar(e, lunes) }, 'Registrar pago') : null,
+          e.atrasadas.length ? h('small', { style: { display: 'block', marginTop: '6px' } }, 'Remanente: ' + e.atrasadas.map(a => 'semana del ' + UI.fechaCorta(a.semana) + ' ' + money(a.pendiente)).join(' · ')) : null);
+      })));
   }
 
   Views.corte = {

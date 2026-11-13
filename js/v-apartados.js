@@ -35,7 +35,7 @@
   function vistaDueno(root, db) {
     const hoy = Store.hoy(), todos = HOOD.listaApartados(db, hoy);
     const abiertos = todos.filter(a => a.estado === 'Apartado'), alerta = abiertos.filter(a => a.alerta);
-    root.appendChild(h('div', { class: 'titulo-vista' }, h('h2', null, 'Apartados'), h('small', null, 'Para apartar un producto, arma el carrito en Venta y elige "Apartado".')));
+    root.appendChild(h('div', { class: 'titulo-vista' }, h('h2', null, 'Apartados'), h('small', null, 'Para apartar un producto, arma el carrito en Venta y elige "Apartar". Cualquier persona puede apartar: no necesita estar registrada.')));
     root.appendChild(h('div', { class: 'kpis' }, UI.kpi('Apartados abiertos', abiertos.length, 'piezas reservadas'), UI.kpi('Por cobrar', money(abiertos.reduce((a, x) => a + x.saldo, 0)), 'saldo de abiertos'),
       UI.kpi('Por vencer (≤ ' + db.config.avisoDias + ' días)', alerta.filter(a => a.alerta === 'Por vencer').length, '', alerta.length ? 'ambar' : 'ok'), UI.kpi('Vencidos sin cerrar', alerta.filter(a => a.alerta === 'Vencido').length, 'se cierran solos a la 1 a.m.', alerta.some(a => a.alerta === 'Vencido') ? 'mal' : 'ok')));
     if (alerta.length) root.appendChild(h('div', { class: 'aviso ambar' }, h('div', { class: 'fuerte' }, '⏰ Recordatorio: apartados por vencer'),
@@ -76,7 +76,7 @@
     }
     tel.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); buscar(); } });
     root.appendChild(h('div', { class: 'card' }, h('div', { class: 'fila' }, h('div', { style: { flex: 1, minWidth: '200px' } }, tel), h('button', { class: 'btn primary', type: 'button', onclick: buscar }, 'Consultar apartados')),
-      h('small', null, 'Para apartar, arma el carrito en Venta y elige "Apartado". Consultar y abonar necesita internet. Toca un apartado abierto para registrar un abono.')));
+      h('small', null, 'Para apartar, arma el carrito en Venta y elige "Apartar". Cualquier persona puede apartar: no necesita estar registrada. Consultar y abonar necesita internet. Toca un apartado abierto para registrar un abono.')));
     root.appendChild(res);
     if (est.tel && HOOD.tel10(est.tel).length === 10 && navigator.onLine) buscar();
   }
