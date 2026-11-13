@@ -118,7 +118,7 @@ var HOOD = (function () {
   };
 
   const ABONO_FORMAS = ['Efectivo', 'Transferencia'];
-  const SOLO_DUENO = { producto_alta: 1, producto_edit: 1, entrada: 1, entrada_anular: 1, gasto: 1, gasto_anular: 1, pago: 1, pago_anular: 1, corte: 1, cliente: 1, config: 1 };
+  const SOLO_DUENO = { producto_alta: 1, producto_edit: 1, entrada: 1, entrada_editar: 1, entrada_anular: 1, gasto: 1, gasto_anular: 1, pago: 1, pago_anular: 1, corte: 1, cliente: 1, config: 1, cancelar: 1 };
 
   /* ============================================================
    * 3. BASE DE DATOS EN MEMORIA
@@ -209,7 +209,7 @@ var HOOD = (function () {
       if (c.vence && c.vence < hoy) return { ok: false, msg: 'Código vencido' };
       const p = pct(c.pct);
       if (p <= 0) return { ok: false, msg: 'Código sin descuento configurado' };
-      return { ok: true, codigo: buscado, pct: p };
+      return { ok: true, codigo: buscado, pct: p, credito: c.credito === true };
     }
     return { ok: false, msg: 'Código inválido' };
   }
@@ -362,7 +362,10 @@ var HOOD = (function () {
     const pago = cred ? 'Crédito' : String(a.pago || '');
     if (!cred && (db.config.formas.indexOf(pago) < 0 || /cr[eé]dito|apartado/i.test(pago))) return { ok: false, msg: 'Elige la forma de cobro' };
     let desc = null;
-    if (String(a.cod || '').trim()) { desc = codigoInfo(db, a.cod, hoy); if (!desc.ok) return desc; }
+    if (String(a.cod || '').trim()) {
+      desc = codigoInfo(db, a.cod, hoy); if (!desc.ok) return desc;
+      if (cred && !desc.credito) return { ok: false, msg: 'El código ' + desc.codigo + ' no es válido en compras a crédito. Quítalo o cobra de contado.' };
+    }
     const L = armarLineas(db, a.items);
     if (!L.ok) return L;
     const lineas = L.lineas;
@@ -581,6 +584,7 @@ var HOOD = (function () {
     if (!(precio > 0)) return { ok: false, msg: 'El precio de venta debe ser mayor a $0' };
     if (costo < 0) return { ok: false, msg: 'El costo no puede ser negativo' };
     if (cant < 0) return { ok: false, msg: 'La cantidad no puede ser negativa' };
+    if (cant > 0 && costo === 0 && a.reinv !== false && a.costoCero !== true) return { ok: false, costoCero: true, msg: 'El costo por pieza es $0: la reinversión quedaría en $0. Escribe el costo, o confirma que no tuvo costo.' };
     db.productos.push([codigo, nombre, String(a.cat || '').trim(), String(a.talla || '').trim(), String(a.color || '').trim(), costo, precio, 0, min, 'SI', 0]);
     let total = 0;
     if (cant > 0) total = nuevaEntrada(db, op, st, { fecha: fechaArg(a.fecha, op), codigo, cant, costo, notas: a.notas || 'Alta de producto', efectivo: a.efectivo, reinv: a.reinv });
@@ -615,24 +619,173 @@ var HOOD = (function () {
     if (!(cant > 0)) return { ok: false, msg: 'Escribe cuántas piezas compraste' };
     const costo = a.costo === undefined || a.costo === '' ? num(p[CPR.COSTO]) : r2(num(a.costo));
     if (costo < 0) return { ok: false, msg: 'El costo no puede ser negativo' };
+    if (costo === 0 && a.reinv !== false && a.costoCero !== true) return { ok: false, costoCero: true, msg: 'El costo por pieza es $0: la reinversión quedaría en $0. Escribe el costo, o confirma que no tuvo costo.' };
     const total = nuevaEntrada(db, op, st, { fecha: fechaArg(a.fecha, op), codigo: String(a.codigo), cant, costo, notas: a.notas, efectivo: a.efectivo, reinv: a.reinv });
     if (a.actualizarCosto && a.reinv !== false) p[CPR.COSTO] = costo;
     return { ok: true, reinversion: total };
   }
 
-  function opEntradaAnular(db, op) {
+  /** Corrige una compra ya registrada (piezas, costo, fecha, notas). La existencia y la reinversión se ajustan solas. */
+  function opEntradaEditar(db, op) {
     const a = op.args || {};
     const f = db.entradas.find(r => r[CE.ID] === a.id);
     if (!f) return { ok: false, msg: 'Compra no encontrada' };
-    const cant = num(f[CE.CANT]);
-    if (cant <= 0) return { ok: false, msg: 'Esa compra ya estaba anulada' };
+    const antes = num(f[CE.CANT]);
+    const cant = a.cant === undefined || a.cant === '' ? antes : Math.floor(num(a.cant));
+    if (!(cant > 0)) return { ok: false, msg: 'Escribe cuántas piezas compraste' };
+    const costo = a.costo === undefined || a.costo === '' ? num(f[CE.COSTO]) : r2(num(a.costo));
+    if (costo < 0) return { ok: false, msg: 'El costo no puede ser negativo' };
+    if (costo === 0 && a.costoCero !== true) return { ok: false, costoCero: true, msg: 'El costo por pieza es $0: la reinversión quedaría en $0. Escribe el costo, o confirma que no tuvo costo.' };
     const p = mapaProd(db)[String(f[CE.CODIGO])];
-    if (p && num(p[CPR.DISP]) - cant < 0) return { ok: false, msg: 'Ya se vendieron piezas de esa compra; no se puede anular' };
-    f[CE.NOTAS] = '[ANULADA ' + cant + ' pzs · $' + num(f[CE.TOTAL]).toFixed(2) + '] ' + str(f[CE.NOTAS]);
-    f[CE.CANT] = 0; f[CE.TOTAL] = 0;
-    sumDisp(db, f[CE.CODIGO], -cant);
+    if (p && num(p[CPR.DISP]) + (cant - antes) < 0) return { ok: false, msg: 'Ya se vendieron piezas de esa compra: no puedes dejarla con menos de ' + (antes - num(p[CPR.DISP])) + ' piezas' };
+    f[CE.CANT] = cant; f[CE.COSTO] = costo; f[CE.TOTAL] = r2(cant * costo);
+    if (a.fecha !== undefined && esFecha(a.fecha)) f[CE.FECHA] = fechaArg(a.fecha, op);
+    if (a.notas !== undefined) f[CE.NOTAS] = String(a.notas);
+    if (a.efectivo !== undefined) f[CE.EFECTIVO] = sn(a.efectivo);
+    sumDisp(db, f[CE.CODIGO], cant - antes);
+    if (a.actualizarCosto && p) p[CPR.COSTO] = costo;
+    return { ok: true, reinversion: f[CE.TOTAL] };
+  }
+
+  /* ============================================================
+   * 8b. CANCELACIONES
+   *    Cancelar = BORRAR el registro de verdad y deshacer todo lo que provocó: existencias, abonos, pagos, gastos, comisiones.
+   *    Lo que quedaría inconsistente (por ejemplo, borrar una venta a crédito que ya tiene abonos de más) se rechaza con un mensaje claro.
+   * ============================================================ */
+  function quitar(arr, fn) { let n = 0; for (let i = arr.length - 1; i >= 0; i--) if (fn(arr[i])) { arr.splice(i, 1); n++; } return n; }
+
+  /** Vuelve a repartir la utilidad cobrada de los abonos de un cliente después de quitar una compra o un abono. */
+  function reconstruirAbonosCredito(db, tel) {
+    const compras = [], porId = {};
+    db.ventas.forEach(f => {
+      if (f[CV.ID] === '' || f[CV.PAGO] !== 'Crédito' || tel10(f[CV.TEL]) !== tel) return;
+      const p = porId[f[CV.ID]] || (porId[f[CV.ID]] = { total: 0, util: 0, saldo: 0 });
+      if (compras.indexOf(p) < 0) compras.push(p);
+      p.total = r2(p.total + num(f[CV.TOTAL])); p.util = r2(p.util + num(f[CV.UTIL])); p.saldo = p.total;
+    });
+    db.abonos.forEach(f => {
+      if (f[CA.ID] === '' || str(f[CA.APART]) !== '' || tel10(f[CA.TEL]) !== tel) return;
+      let resto = num(f[CA.MONTO]), util = 0;
+      compras.forEach(p => {
+        if (resto > 0 && p.saldo > 0) { const x = Math.min(resto, p.saldo); util += p.total > 0 ? x * p.util / p.total : 0; p.saldo = r2(p.saldo - x); resto = r2(resto - x); }
+      });
+      f[CA.UTIL] = r2(util);
+    });
+  }
+
+  function cancelarApartado(db, id) {
+    const ap = apartados(db)[id];
+    if (!ap) return { ok: false, msg: 'Apartado no encontrado' };
+    // abierto o liquidado: la pieza estaba fuera de la existencia; vencido: ya había regresado
+    if (ap.estado === 'Apartado' || ap.estado === 'Liquidado') ap.lineas.forEach(f => sumDisp(db, f[CP.CODIGO], num(f[CP.CANT])));
+    quitar(db.ventas, f => f[CV.ID] === id && f[CV.PAGO] === 'Apartado');
+    quitar(db.abonos, f => str(f[CA.APART]) === id);
+    quitar(db.apartados, f => f[CP.ID] === id);
     return { ok: true };
   }
+
+  function cancelarVenta(db, id) {
+    const filas = db.ventas.filter(f => f[CV.ID] === id);
+    if (!filas.length) return { ok: false, msg: 'Venta no encontrada' };
+    if (filas[0][CV.PAGO] === 'Apartado') return cancelarApartado(db, id);
+    const credito = filas[0][CV.PAGO] === 'Crédito', tel = tel10(filas[0][CV.TEL]), aid = 'A' + String(id).slice(1);
+    if (credito) {
+      const total = filas.reduce((x, f) => x + num(f[CV.TOTAL]), 0);
+      const c = creditos(db, filas[0][CV.FECHA])[tel] || { total: 0, pagado: 0 };
+      const primer = db.abonos.filter(f => f[CA.ID] === aid && str(f[CA.APART]) === '').reduce((x, f) => x + num(f[CA.MONTO]), 0);
+      if (r2(c.pagado - primer) > r2(c.total - total) + 0.004) return { ok: false, msg: 'Este cliente ya abonó dinero que cubre otras compras. Cancela primero sus abonos más recientes (Cancelaciones > Abonos) y luego esta venta.' };
+    }
+    filas.forEach(f => sumDisp(db, f[CV.CODIGO], num(f[CV.CANT])));
+    quitar(db.ventas, f => f[CV.ID] === id);
+    if (credito) { quitar(db.abonos, f => f[CA.ID] === aid && str(f[CA.APART]) === ''); reconstruirAbonosCredito(db, tel); }
+    return { ok: true };
+  }
+
+  function cancelarAbono(db, id) {
+    const f = db.abonos.find(r => r[CA.ID] === id);
+    if (!f) return { ok: false, msg: 'Abono no encontrado' };
+    const aid = str(f[CA.APART]);
+    if (aid !== '') {
+      if (f[CA.FORMA] === 'Vencimiento') return { ok: false, msg: 'Es el registro del vencimiento de un apartado: cancela el apartado completo' };
+      const ap = apartados(db)[aid];
+      if (ap && ap.estado !== 'Apartado') return { ok: false, msg: 'Ese apartado ya está ' + ap.estado.toLowerCase() + ': cancela el apartado completo' };
+      quitar(db.abonos, r => r[CA.ID] === id);
+      return { ok: true };
+    }
+    const tel = tel10(f[CA.TEL]);
+    quitar(db.abonos, r => r[CA.ID] === id);
+    reconstruirAbonosCredito(db, tel);
+    return { ok: true };
+  }
+
+  function cancelarPago(db, id) {
+    const p = db.pagos.find(r => r[CPG.ID] === id);
+    if (!p) return { ok: false, msg: 'Pago no encontrado' };
+    quitar(db.gastos, g => g[CG.ID] === p[CPG.GASTO] && p[CPG.GASTO] !== '');
+    quitar(db.pagos, r => r[CPG.ID] === id);
+    return { ok: true };
+  }
+
+  function cancelarGasto(db, id) {
+    const g = db.gastos.find(r => r[CG.ID] === id);
+    if (!g) return { ok: false, msg: 'Gasto no encontrado' };
+    const pago = db.pagos.find(r => r[CPG.GASTO] === id);
+    if (pago) return cancelarPago(db, pago[CPG.ID]); // un gasto de sueldos y su pago son el mismo registro
+    quitar(db.gastos, r => r[CG.ID] === id);
+    return { ok: true };
+  }
+
+  function cancelarEntrada(db, id) {
+    const f = db.entradas.find(r => r[CE.ID] === id);
+    if (!f) return { ok: false, msg: 'Compra no encontrada' };
+    const cant = num(f[CE.CANT]);
+    const p = mapaProd(db)[String(f[CE.CODIGO])];
+    if (cant > 0 && p && num(p[CPR.DISP]) - cant < 0) return { ok: false, msg: 'Ya se vendieron piezas de esa compra; no se puede cancelar. Si el costo estaba mal, edítala.' };
+    if (cant > 0) sumDisp(db, f[CE.CODIGO], -cant);
+    quitar(db.entradas, r => r[CE.ID] === id);
+    return { ok: true };
+  }
+
+  function cancelarCorte(db, id) {
+    if (!db.cortes.some(r => r[CCT.ID] === id)) return { ok: false, msg: 'Corte no encontrado' };
+    quitar(db.cortes, r => r[CCT.ID] === id);
+    return { ok: true };
+  }
+
+  function cancelarProducto(db, codigo) {
+    const c = String(codigo), p = mapaProd(db)[c];
+    if (!p) return { ok: false, msg: 'Producto no encontrado' };
+    if (db.ventas.some(f => f[CV.ID] !== '' && String(f[CV.CODIGO]) === c) || db.apartados.some(f => f[CP.ID] !== '' && String(f[CP.CODIGO]) === c))
+      return { ok: false, msg: 'Este producto ya tiene ventas o apartados. Para quitarlo del catálogo, desactívalo (Activo = NO) y conservarás su historial.' };
+    quitar(db.entradas, r => String(r[CE.CODIGO]) === c);
+    quitar(db.productos, r => String(r[0]) === c);
+    return { ok: true };
+  }
+
+  function cancelarCliente(db, telRaw) {
+    const t = tel10(telRaw);
+    const f = db.clientes.find(r => tel10(r[CC.TEL]) === t);
+    if (!f) return { ok: false, msg: 'Cliente no encontrado' };
+    if (db.ventas.some(r => r[CV.ID] !== '' && r[CV.PAGO] === 'Crédito' && tel10(r[CV.TEL]) === t) || db.abonos.some(r => r[CA.ID] !== '' && tel10(r[CA.TEL]) === t) || db.apartados.some(r => r[CP.ID] !== '' && tel10(r[CP.TEL]) === t))
+      return { ok: false, msg: 'Este cliente ya tiene compras a crédito, abonos o apartados. Si ya no le quieres dar crédito, dalo de baja en Créditos.' };
+    quitar(db.clientes, r => tel10(r[CC.TEL]) === t);
+    return { ok: true };
+  }
+
+  const CANCELAR = { venta: cancelarVenta, abono: cancelarAbono, apartado: cancelarApartado, compra: cancelarEntrada, gasto: cancelarGasto, pago: cancelarPago,
+    corte: cancelarCorte, producto: cancelarProducto, cliente: cancelarCliente };
+
+  function opCancelar(db, op) {
+    const a = op.args || {};
+    const fn = CANCELAR[a.que];
+    if (!fn) return { ok: false, msg: 'No sé cancelar eso' };
+    const id = a.que === 'producto' || a.que === 'cliente' ? a.id : String(a.id || '');
+    if (id === '' || id == null) return { ok: false, msg: 'Falta el registro a cancelar' };
+    return fn(db, id);
+  }
+  const opEntradaAnular = (db, op) => cancelarEntrada(db, String((op.args || {}).id));
+  const opGastoAnular = (db, op) => cancelarGasto(db, String((op.args || {}).id));
+  const opPagoAnular = (db, op) => cancelarPago(db, String((op.args || {}).id));
 
   function opGasto(db, op) {
     const a = op.args || {}, st = sello(op);
@@ -644,18 +797,6 @@ var HOOD = (function () {
     const lista = db.config.catGastos && db.config.catGastos.length ? db.config.catGastos : CAT_GASTOS_BASE;
     if (!lista.some(c => c.toLowerCase() === cat.toLowerCase())) return { ok: false, msg: 'Elige una categoría de la lista (nuevas categorías se agregan en Config)' };
     db.gastos.push([fechaArg(a.fecha, op), concepto, monto, sn(a.efectivo), cat, 'G' + st.tallo, String(a.notas || '')]);
-    return { ok: true };
-  }
-
-  function opGastoAnular(db, op) {
-    const a = op.args || {};
-    const g = db.gastos.find(r => r[CG.ID] === a.id);
-    if (!g) return { ok: false, msg: 'Gasto no encontrado' };
-    if (esSueldos(g[CG.CAT])) return { ok: false, msg: 'Anula el pago desde Corte > Semanal' };
-    if (num(g[CG.MONTO]) <= 0) return { ok: false, msg: 'Ese gasto ya estaba anulado' };
-    g[CG.NOTAS] = (str(g[CG.NOTAS]) + ' · monto original $' + num(g[CG.MONTO]).toFixed(2)).replace(/^ · /, '');
-    g[CG.CONCEPTO] = '[ANULADO] ' + g[CG.CONCEPTO];
-    g[CG.MONTO] = 0;
     return { ok: true };
   }
 
@@ -671,18 +812,6 @@ var HOOD = (function () {
     const concepto = 'Pago a ' + v.nombre + ' · semana del ' + semana.slice(8) + '/' + semana.slice(5, 7);
     db.gastos.push([op.f, concepto, monto, a.forma === 'Efectivo' ? 'SI' : 'NO', 'Sueldos', gid, String(a.nota || '')]);
     db.pagos.push(['PG' + st.tallo, op.f, st.hora, v.nombre, semana, monto, a.forma, String(a.nota || ''), gid]);
-    return { ok: true };
-  }
-
-  function opPagoAnular(db, op) {
-    const a = op.args || {};
-    const p = db.pagos.find(r => r[CPG.ID] === a.id);
-    if (!p) return { ok: false, msg: 'Pago no encontrado' };
-    if (num(p[CPG.MONTO]) <= 0) return { ok: false, msg: 'Ese pago ya estaba anulado' };
-    const g = db.gastos.find(r => r[CG.ID] === p[CPG.GASTO]);
-    if (g) { g[CG.NOTAS] = 'monto original $' + num(g[CG.MONTO]).toFixed(2); g[CG.CONCEPTO] = '[ANULADO] ' + g[CG.CONCEPTO]; g[CG.MONTO] = 0; }
-    p[CPG.NOTA] = '[ANULADO $' + num(p[CPG.MONTO]).toFixed(2) + '] ' + str(p[CPG.NOTA]);
-    p[CPG.MONTO] = 0;
     return { ok: true };
   }
 
@@ -774,7 +903,8 @@ var HOOD = (function () {
         vistos[codigo] = 1;
         const p = pct(k.pct);
         if (p <= 0) return { ok: false, msg: 'El código ' + codigo + ' necesita un porcentaje mayor a 0' };
-        cs.push({ codigo, pct: p, activo: !(k.activo === false || String(k.activo).toUpperCase() === 'NO'), vence: esFecha(k.vence) ? k.vence : '', nota: String(k.nota || '').trim() });
+        cs.push({ codigo, pct: p, activo: !(k.activo === false || String(k.activo).toUpperCase() === 'NO'), vence: esFecha(k.vence) ? k.vence : '', nota: String(k.nota || '').trim(),
+          credito: k.credito === true || String(k.credito).toUpperCase() === 'SI' });
       }
       o.codigos = cs;
     }
@@ -793,7 +923,7 @@ var HOOD = (function () {
    * ============================================================ */
   const OPS = {
     venta: opVenta, credito: opCredito, abono: opAbono, apartado: opApartado, apartado_abono: opApartadoAbono,
-    producto_alta: opProductoAlta, producto_edit: opProductoEdit, entrada: opEntrada, entrada_anular: opEntradaAnular,
+    producto_alta: opProductoAlta, producto_edit: opProductoEdit, entrada: opEntrada, entrada_editar: opEntradaEditar, entrada_anular: opEntradaAnular, cancelar: opCancelar,
     gasto: opGasto, gasto_anular: opGastoAnular, pago: opPago, pago_anular: opPagoAnular, corte: opCorte, cliente: opCliente, config: opConfig
   };
   /** Operaciones que el vendedor puede guardar en la cola sin internet (el resto necesita consultar cuentas en el servidor). */
@@ -887,20 +1017,24 @@ var HOOD = (function () {
     return num(v.sueldo) > 0 && lunes <= tope && lunes >= (v.alta ? lunesDe(v.alta) : tope) && (!v.baja || lunes <= lunesDe(v.baja)) ? num(v.sueldo) : 0;
   }
 
-  /** Sueldos fijos devengados en el periodo (se reparten por día: 1/7 del sueldo semanal cada día, hasta hoy). */
-  function devengadoNomina(db, ini, fin, hoy) {
+  /** Sueldo fijo devengado por UN empleado en el periodo (1/7 del sueldo semanal por día, hasta hoy). */
+  function devengadoEmpleado(v, ini, fin, hoy) {
     const tope = hoy || fin, f2 = fin > tope ? tope : fin;
-    if (f2 < ini) return 0;
+    if (f2 < ini || !(num(v.sueldo) > 0)) return 0;
     let sueldos = 0;
-    db.config.vendedores.forEach(v => {
-      if (!(num(v.sueldo) > 0)) return;
-      for (let w = lunesDe(ini); w <= f2; w = sumaDias(w, 7)) {
-        const a = w < ini ? ini : w, fw = sumaDias(w, 6), b = fw > f2 ? f2 : fw;
-        const dias = difDias(b, a) + 1;
-        if (dias > 0) sueldos += sueldoActivo(v, w, tope) * dias / 7;
-      }
-    });
+    for (let w = lunesDe(ini); w <= f2; w = sumaDias(w, 7)) {
+      const a = w < ini ? ini : w, fw = sumaDias(w, 6), b = fw > f2 ? f2 : fw;
+      const dias = difDias(b, a) + 1;
+      if (dias > 0) sueldos += sueldoActivo(v, w, tope) * dias / 7;
+    }
     return r2(sueldos);
+  }
+
+  /** Sueldos fijos devengados en el periodo por todos los empleados. */
+  function devengadoNomina(db, ini, fin, hoy) {
+    let t = 0;
+    db.config.vendedores.forEach(v => { t += devengadoEmpleado(v, ini, fin, hoy); });
+    return r2(t);
   }
 
   /** Todo lo que pasó entre dos fechas (inclusive). La utilidad cuenta solo lo cobrado (contado + abonos). */
@@ -953,6 +1087,58 @@ var HOOD = (function () {
     o.gastosLista = Object.keys(o.gastosPorConcepto).map(k => ({ concepto: k, monto: o.gastosPorConcepto[k] })).sort((a, b) => b.monto - a.monto);
     delete o.productos; delete o.porVendedor; delete o.gastosPorConcepto;
     return o;
+  }
+
+  /**
+   * Resumen de cada vendedor en un periodo: ventas, utilidad generada, comisión, formas de pago, productos, serie para la gráfica y registro de tickets.
+   * Solo lo usa el dueño (necesita costos y utilidad). Incluye al dueño y a vendedores dados de baja si vendieron en el periodo.
+   */
+  function resumenVendedores(db, ini, fin, hoy) {
+    const en = f => f >= ini && f <= fin;
+    const mensual = difDias(fin, ini) > 70;
+    const llave = f => (mensual ? String(f).slice(0, 7) : f);
+    const V = {};
+    const nuevo = n => ({ vendedor: n, tickets: {}, articulos: 0, vendido: 0, contado: 0, credito: 0, apartLiq: 0, util: 0, comision: 0, descuentos: 0, abonos: 0,
+      porPago: {}, productos: {}, dias: {}, lista: {} });
+    const get = n => V[n] || (V[n] = nuevo(n));
+    db.config.vendedores.forEach(v => { if (!v.baja || v.baja >= ini) get(v.nombre); });
+    db.ventas.forEach(f => {
+      if (f[CV.ID] === '' || !en(f[CV.FECHA])) return;
+      const v = get(f[CV.VENDEDOR]), total = num(f[CV.TOTAL]), cant = num(f[CV.CANT]), pg = f[CV.PAGO];
+      v.tickets[f[CV.ID]] = 1; v.articulos += cant; v.vendido += total; v.util += num(f[CV.UTIL]); v.comision += num(f[CV.COM]); v.descuentos += num(f[CV.DESC]);
+      if (pg === 'Crédito') v.credito += total; else if (pg === 'Apartado') v.apartLiq += total; else v.contado += total;
+      v.porPago[pg] = r2((v.porPago[pg] || 0) + total);
+      const pr = v.productos[f[CV.PRODUCTO]] || (v.productos[f[CV.PRODUCTO]] = { producto: f[CV.PRODUCTO], piezas: 0, ventas: 0 });
+      pr.piezas += cant; pr.ventas += total;
+      const k = llave(f[CV.FECHA]); v.dias[k] = (v.dias[k] || 0) + total;
+      const t = v.lista[f[CV.ID]] || (v.lista[f[CV.ID]] = { id: f[CV.ID], fecha: f[CV.FECHA], hora: f[CV.HORA], pago: pg, total: 0, util: 0, comision: 0, descuento: 0, items: [] });
+      t.total = r2(t.total + total); t.util = r2(t.util + num(f[CV.UTIL])); t.comision = r2(t.comision + num(f[CV.COM])); t.descuento = r2(t.descuento + num(f[CV.DESC]));
+      t.items.push(f[CV.PRODUCTO] + ' ×' + cant);
+    });
+    db.abonos.forEach(f => { if (f[CA.ID] !== '' && en(f[CA.FECHA]) && num(f[CA.MONTO]) > 0 && f[CA.VENDEDOR] !== '') get(f[CA.VENDEDOR]).abonos += num(f[CA.MONTO]); });
+    const claves = [];
+    for (let a = mensual ? iniMes(ini) : ini; a <= fin && claves.length < 400; a = mensual ? sumaDias(finMes(a), 1) : sumaDias(a, 1)) claves.push(mensual ? a.slice(0, 7) : a);
+    const nom = {};
+    nomina(db, lunesDe(hoy), hoy).forEach(x => { nom[x.nombre] = x; });
+    const lista = Object.keys(V).map(n => {
+      const v = V[n], cfg = vendedorDe(db, n), tk = Object.keys(v.tickets).length;
+      const pagado = r2(db.pagos.filter(r => r[CPG.VENDEDOR] === n && en(r[CPG.FECHA])).reduce((x, r) => x + num(r[CPG.MONTO]), 0));
+      const sueldo = cfg ? devengadoEmpleado(cfg, ini, fin, hoy) : 0;
+      const mejorDia = Object.keys(v.dias).sort((a, b) => v.dias[b] - v.dias[a])[0];
+      return { vendedor: n, esDueno: !cfg, baja: cfg ? cfg.baja : '', pct: cfg ? cfg.pct : 0, base: cfg ? cfg.base : '', tickets: tk, articulos: v.articulos, vendido: r2(v.vendido), contado: r2(v.contado),
+        credito: r2(v.credito), apartLiq: r2(v.apartLiq), util: r2(v.util), comision: r2(v.comision), descuentos: r2(v.descuentos), abonos: r2(v.abonos),
+        ticketPromedio: tk ? r2(v.vendido / tk) : 0, margen: v.vendido > 0 ? Math.round(v.util / v.vendido * 1000) / 1000 : 0,
+        sueldo, devengado: r2(sueldo + v.comision), pagado, pendienteHoy: nom[n] ? nom[n].pendienteTotal : 0,
+        mejorDia: mejorDia ? { clave: mejorDia, vendido: r2(v.dias[mejorDia]) } : null,
+        porPago: v.porPago, productos: Object.keys(v.productos).map(k => v.productos[k]).sort((a, b) => b.piezas - a.piezas).slice(0, 8).map(x => ({ producto: x.producto, piezas: x.piezas, ventas: r2(x.ventas) })),
+        serie: claves.map(k => ({ clave: k, vendido: r2(v.dias[k] || 0) })),
+        ventas: Object.keys(v.lista).map(k => v.lista[k]).sort((a, b) => (b.fecha + b.hora).localeCompare(a.fecha + a.hora)) };
+    }).sort((a, b) => b.vendido - a.vendido || a.vendedor.localeCompare(b.vendedor));
+    const conVentas = lista.filter(x => x.vendido > 0);
+    const mejor = conVentas.length ? conVentas[0] : null;
+    const mejorUtil = conVentas.length ? conVentas.slice().sort((a, b) => b.util - a.util)[0] : null;
+    const total = r2(lista.reduce((x, v) => x + v.vendido, 0));
+    return { ini, fin, mensual, claves, vendedores: lista, mejor: mejor ? mejor.vendedor : '', mejorUtil: mejorUtil ? mejorUtil.vendedor : '', total };
   }
 
   /** Serie para gráficas: paso = 'dia' | 'semana' | 'mes'. */
@@ -1117,7 +1303,7 @@ var HOOD = (function () {
     const config = { formas: cf.formas, plazoCredito: cf.plazoCredito, plazoApartado: cf.plazoApartado, minApartado: cf.minApartado, comTarjeta: cf.comTarjeta,
       periodoMetas: cf.periodoMetas, metas: cf.metas, avisoDias: cf.avisoDias, duenoNombre: '', duenoPass: '',
       vendedores: v ? [{ nombre: v.nombre, pct: v.pct, base: v.base }] : [],
-      codigos: cf.codigos.filter(c => c.activo !== false).map(c => ({ h: sha256(String(c.codigo).toUpperCase()), pct: c.pct, vence: c.vence, activo: true })) };
+      codigos: cf.codigos.filter(c => c.activo !== false).map(c => ({ h: sha256(String(c.codigo).toUpperCase()), pct: c.pct, vence: c.vence, activo: true, credito: c.credito === true })) };
     const av = avisos(db, hoy);
     av.creditos = av.creditos.map(x => ({ nombre: x.nombre, limite: x.limite, dias: x.dias, saldo: x.saldo }));
     av.apartados = av.apartados.map(x => ({ nombre: x.nombre, limite: x.limite, dias: x.dias, saldo: x.saldo }));
@@ -1128,7 +1314,7 @@ var HOOD = (function () {
     r2, num, nn, tel10, pct, str, esFecha, esHora, sumaDias, difDias, lunesDe, iniMes, finMes, sha256,
     configBase, nuevaDb, normalizar, textoProd, activoProd, mapaProd, vendedorDe, clienteActivo, codigoInfo,
     recomputeDisp, recalcular, creditos, apartados, sincronizarApartados, revisarApartados, aplicar, aplicarSeguro, validarConfig,
-    inventario, periodo, serie, corteDiario, nomina, nominaSemana, semanasNomina, listaCreditos, listaApartados, avisos,
+    inventario, periodo, serie, resumenVendedores, corteDiario, nomina, nominaSemana, semanasNomina, listaCreditos, listaApartados, avisos,
     cuentaCliente, cuentaApartados, meta, misComisiones, snapshotDueno, snapshotVendedor, minApartado, esSueldos, CAT_GASTOS_BASE };
 })();
 

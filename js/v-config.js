@@ -67,11 +67,13 @@
           h('div', { class: 'cab' }, h('label', { class: 'check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: k.activo !== false, onchange: ev => { k.activo = ev.target.checked; marcar(); } }), 'Activo'), h('button', { class: 'btn chico ghost', type: 'button', onclick: () => { B.codigos.splice(i, 1); pintarC(); marcar(); } }, 'Quitar')),
           h('div', { class: 'grid3' }, UI.campo('Código', txt(k, 'codigo', { autocapitalize: 'characters', placeholder: 'BUENFIN', oninput: ev => { k.codigo = ev.target.value.toUpperCase().replace(/\s+/g, ''); ev.target.value = k.codigo; marcar(); } })),
             UI.campo('Descuento (%)', pctIn(k, 'pct')), UI.campo('Vence (opcional)', fecha(k, 'vence'))),
-          UI.campo('Nota / para quién es', txt(k, 'nota', { placeholder: 'Ej. clientes frecuentes' })))));
-        tc.appendChild(h('button', { class: 'btn', type: 'button', onclick: () => { B.codigos.push({ codigo: '', pct: 0.1, activo: true, vence: '', nota: '' }); pintarC(); marcar(); } }, UI.icono('mas'), 'Agregar código'));
+          h('div', { class: 'grid2' }, UI.campo('Nota / para quién es', txt(k, 'nota', { placeholder: 'Ej. clientes frecuentes' })),
+            UI.campo('Compras a crédito', h('label', { class: 'check', style: { margin: 0 } }, h('input', { type: 'checkbox', checked: k.credito === true, onchange: ev => { k.credito = ev.target.checked; marcar(); } }), 'Válido también a crédito'),
+              k.credito === true ? 'Sí se puede usar al vender a crédito.' : 'Normalmente no: solo en compras de contado, apartados y tarjeta.')))));
+        tc.appendChild(h('button', { class: 'btn', type: 'button', onclick: () => { B.codigos.push({ codigo: '', pct: 0.1, activo: true, vence: '', nota: '', credito: false }); pintarC(); marcar(); } }, UI.icono('mas'), 'Agregar código'));
       }
       pintarC();
-      root.appendChild(seccion('Códigos de descuento', 'El vendedor escribe el código al cobrar; no puede ver la lista de códigos.', tc));
+      root.appendChild(seccion('Códigos de descuento', 'El vendedor escribe el código al cobrar; no puede ver la lista de códigos. Por regla general un código NO vale en compras a crédito: márcalo solo si quieres permitirlo.', tc));
 
       /* ----- categorías de gasto ----- */
       const tg = h('div');

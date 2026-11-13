@@ -31,7 +31,9 @@
     let pctDesc = 0, codMsg = '';
     if (est.cod.trim()) {
       const ci = HOOD.codigoInfo(db, est.cod, Store.hoy());
-      if (ci.ok) pctDesc = ci.pct; else codMsg = ci.msg;
+      if (!ci.ok) codMsg = ci.msg;
+      else if (est.pago === 'Crédito' && !ci.credito) codMsg = 'El código ' + ci.codigo + ' no es válido en compras a crédito. Quítalo o elige otra forma de cobro.';
+      else pctDesc = ci.pct;
     }
     const desc = HOOD.r2(subtotal * pctDesc), total = HOOD.r2(subtotal - desc);
     const tarj = /tarjeta/i.test(est.pago) ? HOOD.r2(total * HOOD.num(db.config.comTarjeta)) : 0;

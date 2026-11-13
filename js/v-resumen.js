@@ -21,7 +21,8 @@
       const futuro = r.fin >= hoy;
       root.appendChild(h('div', { class: 'titulo-vista' }, UI.segmentos([['semana', 'Semana'], ['mes', 'Mes'], ['anio', 'Año']], est.modo, id => { est.modo = id; est.ref = hoy; App.refresh(); }),
         h('div', { class: 'fecha-nav' }, h('button', { class: 'btn chico', type: 'button', onclick: () => { est.ref = mover(est.modo, r.ini, -1); App.refresh(); } }, '‹'),
-          h('span', { class: 't', style: { minWidth: '190px' } }, r.etiqueta), h('button', { class: 'btn chico', type: 'button', disabled: futuro, onclick: () => { est.ref = mover(est.modo, r.ini, 1); App.refresh(); } }, '›'))));
+          h('span', { class: 't', style: { minWidth: '190px' } }, r.etiqueta), h('button', { class: 'btn chico', type: 'button', disabled: futuro, onclick: () => { est.ref = mover(est.modo, r.ini, 1); App.refresh(); } }, '›')),
+        h('button', { class: 'btn', type: 'button', onclick: () => Informe.resumen(est.modo, r) }, UI.icono('imprimir'), 'Imprimir / PDF')));
 
       root.appendChild(h('div', { class: 'kpis' }, UI.kpi('Vendido', money(p.vendido), p.tickets + ' tickets · ' + UI.num(p.articulos) + ' artículos'), UI.kpi('Comprado (reinversión)', money(p.reinversion), 'mercancía para el inventario'),
         UI.kpi('Cobrado', money(p.cobrado), 'contado + abonos', 'ok'), UI.kpi('Utilidad neta', money(p.utilNeta), 'después de gastos y nómina', p.utilNeta >= 0 ? 'ok' : 'mal')));

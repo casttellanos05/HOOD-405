@@ -5,6 +5,46 @@
   const est = { sub: 'existencias', q: '', filtro: 'todos', mes: '', max: 40 };
 
 
+  /** Si el costo por pieza es $0, avisa y pide confirmar antes de guardar (la reinversión quedaría en $0). */
+  async function hacerConAviso(tipo, args) {
+    let r = await Store.hacer(tipo, args);
+    if (!r.ok && r.costoCero) {
+      if (!await UI.confirmar('El costo por pieza es $0', 'Con costo $0 la reinversión de esta compra queda en $0 y la utilidad de las ventas saldría inflada. ¿Seguro que no tuvo costo (regalo, muestra)?', 'Sí, sin costo', true)) return { ok: false, cancelado: true, msg: '' };
+      r = await Store.hacer(tipo, Object.assign({}, args, { costoCero: true }));
+    }
+    return r;
+  }
+
+  /** Corregir o eliminar una compra ya registrada. */
+  function editarCompra(e) {
+    const p = db => db.productos.find(r => String(r[0]) === String(e[HOOD.CE.CODIGO]));
+    const db = Store.view(), prod = p(db);
+    const f = { cant: UI.dinero({ step: '1', value: e[HOOD.CE.CANT] }), costo: UI.dinero({ value: e[HOOD.CE.COSTO] }), fecha: h('input', { type: 'date', value: e[HOOD.CE.FECHA], max: Store.hoy() }),
+      notas: UI.entrada({ value: String(e[HOOD.CE.NOTAS] || '') }), efectivo: h('input', { type: 'checkbox', checked: e[HOOD.CE.EFECTIVO] === 'SI' }), act: h('input', { type: 'checkbox' }) };
+    const resumen = h('div', { class: 'aviso info' }), msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
+    const calc = () => { const c = UI.leerNum(f.costo.value), n = Math.floor(UI.leerNum(f.cant.value)); resumen.textContent = 'Reinversión de esta compra: ' + money(c * n); resumen.className = 'aviso ' + (c * n > 0 ? 'info' : 'ambar'); };
+    [f.costo, f.cant].forEach(x => x.addEventListener('input', calc)); calc();
+    const cuerpo = h('div', null, h('div', { class: 'muted', style: { marginBottom: '8px' } }, prod ? HOOD.textoProd(prod) + ' · ' + e[HOOD.CE.CODIGO] : String(e[HOOD.CE.CODIGO])),
+      h('div', { class: 'grid2' }, UI.campo('Piezas compradas', f.cant), UI.campo('Costo por pieza', f.costo)),
+      h('div', { class: 'grid2' }, UI.campo('Fecha de la compra', f.fecha), UI.campo('Notas', f.notas)),
+      h('label', { class: 'check' }, f.efectivo, 'Pagado en efectivo (resta de la caja del corte)'), h('label', { class: 'check' }, f.act, 'Usar este costo como costo actual del producto'), resumen, msg);
+    UI.modal({ titulo: 'Editar compra', cuerpo, ancho: '560px', acciones: [{ texto: 'Cerrar', tipo: 'ghost' },
+      { texto: 'Eliminar compra', tipo: 'danger', cerrar: false, onclick: async (cerrar, btn) => {
+        if (!await UI.confirmar('Eliminar compra', 'Se borra este registro: salen ' + UI.num(e[HOOD.CE.CANT]) + ' piezas de la existencia y desaparece su reinversión de ' + money(e[HOOD.CE.TOTAL]) + ' de todos los reportes. ¿Continuar?', 'Eliminar', true)) return;
+        btn.disabled = true; const r = await Store.hacer('cancelar', { que: 'compra', id: e[HOOD.CE.ID] }); btn.disabled = false;
+        if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
+        cerrar(); UI.toast('Compra eliminada', 'ok'); App.refresh();
+      } },
+      { texto: 'Guardar cambios', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
+        btn.disabled = true;
+        const r = await hacerConAviso('entrada_editar', { id: e[HOOD.CE.ID], cant: Math.floor(UI.leerNum(f.cant.value)), costo: UI.leerNum(f.costo.value), fecha: f.fecha.value, notas: f.notas.value, efectivo: f.efectivo.checked, actualizarCosto: f.act.checked });
+        btn.disabled = false;
+        if (r.cancelado) return;
+        if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
+        cerrar(); UI.toast('Compra actualizada · reinversión ' + money(r.reinversion), 'ok'); App.refresh();
+      } }] });
+  }
+
   /** Formulario de producto nuevo = compra inicial = reinversión. */
   function formNuevo(db) {
     const f = {
@@ -17,7 +57,8 @@
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
     const calc = () => {
       const c = UI.leerNum(f.costo.value), p = UI.leerNum(f.precio.value), n = Math.floor(UI.leerNum(f.cant.value));
-      resumen.textContent = 'Reinversión: ' + money(c * n) + (p > 0 && c > 0 ? ' · Utilidad por pieza: ' + money(p - c) + ' (' + UI.pct((p - c) / p) + ' del precio)' : '');
+      resumen.textContent = 'Reinversión: ' + money(c * n) + (p > 0 && c > 0 ? ' · Utilidad por pieza: ' + money(p - c) + ' (' + UI.pct((p - c) / p) + ' del precio)' : '') + (n > 0 && c === 0 ? ' · Ojo: sin costo la reinversión queda en $0' : '');
+      resumen.className = 'aviso ' + (n > 0 && c === 0 ? 'ambar' : 'info');
     };
     ['costo', 'precio', 'cant'].forEach(k => f[k].addEventListener('input', calc)); calc();
     const cuerpo = h('div', null,
@@ -28,10 +69,11 @@
       UI.campo('Notas', f.notas), h('label', { class: 'check' }, f.efectivo, 'Se pagó en efectivo (resta de la caja del corte)'), resumen, msg);
     UI.modal({ titulo: 'Nuevo producto', cuerpo, acciones: [{ texto: 'Cancelar', tipo: 'ghost' }, { texto: 'Guardar', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
       btn.disabled = true;
-      const r = await Store.hacer('producto_alta', { codigo: f.codigo.value, nombre: f.nombre.value, cat: '', talla: f.talla.value, color: f.color.value,
+      const r = await hacerConAviso('producto_alta', { codigo: f.codigo.value, nombre: f.nombre.value, cat: '', talla: f.talla.value, color: f.color.value,
         costo: UI.leerNum(f.costo.value), precio: UI.leerNum(f.precio.value), cant: Math.floor(UI.leerNum(f.cant.value)), min: Math.floor(UI.leerNum(f.min.value)),
         efectivo: f.efectivo.checked, notas: f.notas.value });
       btn.disabled = false;
+      if (r.cancelado) return;
       if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
       cerrar(); UI.toast('Producto guardado' + (r.reinversion ? ' · reinversión ' + money(r.reinversion) : ''), 'ok'); App.refresh();
     } }] });
@@ -57,8 +99,9 @@
       h('label', { class: 'check' }, comp.efectivo, 'Pagado en efectivo'), h('label', { class: 'check' }, comp.act, 'Usar este costo como costo actual del producto'), msg2,
       h('button', { class: 'btn acento', type: 'button', onclick: async ev => {
         const btn = ev.currentTarget; btn.disabled = true;
-        const r = await Store.hacer('entrada', { codigo: p.codigo, cant: Math.floor(UI.leerNum(comp.cant.value)), costo: UI.leerNum(comp.costo.value), efectivo: comp.efectivo.checked, notas: comp.notas.value, actualizarCosto: comp.act.checked });
+        const r = await hacerConAviso('entrada', { codigo: p.codigo, cant: Math.floor(UI.leerNum(comp.cant.value)), costo: UI.leerNum(comp.costo.value), efectivo: comp.efectivo.checked, notas: comp.notas.value, actualizarCosto: comp.act.checked });
         btn.disabled = false;
+        if (r.cancelado) return;
         if (!r.ok) { msg2.textContent = r.msg; msg2.style.display = ''; return; }
         m.cerrar(); UI.toast('Compra registrada · reinversión ' + money(r.reinversion), 'ok'); App.refresh();
       } }, 'Registrar compra'),
@@ -70,14 +113,9 @@
       h('label', { class: 'check' }, f.activo, 'Activo (visible para vender)'), msg,
       compras.length ? h('div', null, h('h3', { style: { marginTop: '14px' } }, 'Compras de este producto'),
         h('div', { class: 'lista' }, compras.slice(0, 15).map(e => h('div', { class: 'item' },
-          h('div', { class: 'grow' }, h('div', { class: 't1' }, UI.fecha(e[HOOD.CE.FECHA]) + ' · ' + UI.num(e[HOOD.CE.CANT]) + ' pzs'), h('div', { class: 't2' }, 'a ' + money(e[HOOD.CE.COSTO]) + ' c/u' + (e[HOOD.CE.NOTAS] ? ' · ' + e[HOOD.CE.NOTAS] : ''))),
+          h('div', { class: 'grow' }, h('div', { class: 't1' }, UI.fecha(e[HOOD.CE.FECHA]) + ' · ' + UI.num(e[HOOD.CE.CANT]) + ' pzs'), h('div', { class: 't2' }, (HOOD.num(e[HOOD.CE.COSTO]) ? 'a ' + money(e[HOOD.CE.COSTO]) + ' c/u' : 'SIN COSTO') + (e[HOOD.CE.NOTAS] ? ' · ' + e[HOOD.CE.NOTAS] : ''))),
           h('div', { class: 'monto' }, money(e[HOOD.CE.TOTAL])),
-          HOOD.num(e[HOOD.CE.CANT]) > 0 ? h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
-            if (!await UI.confirmar('Anular compra', 'Se quitan ' + e[HOOD.CE.CANT] + ' piezas de la existencia y la reinversión de ' + money(e[HOOD.CE.TOTAL]) + '. ¿Continuar?', 'Anular', true)) return;
-            const r = await Store.hacer('entrada_anular', { id: e[HOOD.CE.ID] });
-            if (!r.ok) { UI.toast(r.msg, 'mal', 5000); return; }
-            m.cerrar(); UI.toast('Compra anulada'); App.refresh();
-          } }, 'Anular') : null)))) : null);
+          h('button', { class: 'btn chico', type: 'button', onclick: () => { m.cerrar(); editarCompra(e); } }, 'Editar'))))) : null);
     const m = UI.modal({ titulo: p.texto, cuerpo, ancho: '640px', acciones: [{ texto: 'Cerrar', tipo: 'ghost' }, { texto: 'Guardar datos', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
       btn.disabled = true;
       const r = await Store.hacer('producto_edit', { codigo: p.codigo, nombre: f.nombre.value, cat: p.cat, talla: f.talla.value, color: f.color.value, costo: UI.leerNum(f.costo.value), precio: UI.leerNum(f.precio.value), min: Math.floor(UI.leerNum(f.min.value)), activo: f.activo.checked });
@@ -138,9 +176,11 @@
       h('div', { class: 'fecha-nav' }, h('button', { class: 'btn chico', type: 'button', onclick: () => { est.mes = HOOD.iniMes(HOOD.sumaDias(ini, -1)); App.refresh(); } }, '‹'),
         h('span', { class: 't' }, UI.mesLargo(ini)), h('button', { class: 'btn chico', type: 'button', disabled: fin >= hoy, onclick: () => { est.mes = HOOD.sumaDias(fin, 1); App.refresh(); } }, '›'))));
     root.appendChild(h('div', { class: 'kpis tres' }, UI.kpi('Reinversión del mes', money(total), 'compras de mercancía'), UI.kpi('Piezas compradas', UI.num(pzs)), UI.kpi('Reinversión del año', money(anio))));
-    root.appendChild(h('div', { class: 'card' }, !lista.length ? UI.vacio('No hay compras registradas este mes.') : h('div', { class: 'lista' }, lista.map(e => h('div', { class: 'item' },
+    const sinCosto = lista.filter(e => HOOD.num(e[HOOD.CE.CANT]) > 0 && !(HOOD.num(e[HOOD.CE.TOTAL]) > 0));
+    if (sinCosto.length) root.appendChild(h('div', { class: 'aviso ambar' }, h('b', null, sinCosto.length === 1 ? '1 compra sin costo: ' : sinCosto.length + ' compras sin costo: '), 'su reinversión está en $0. Toca la compra para corregirla.'));
+    root.appendChild(h('div', { class: 'card' }, !lista.length ? UI.vacio('No hay compras registradas este mes.') : h('div', { class: 'lista' }, lista.map(e => h('button', { class: 'item', type: 'button', style: { width: '100%', textAlign: 'left' }, onclick: () => editarCompra(e) },
       h('div', { class: 'grow' }, h('div', { class: 't1' }, nombre(e[HOOD.CE.CODIGO]) + ' ×' + UI.num(e[HOOD.CE.CANT])),
-        h('div', { class: 't2' }, UI.fecha(e[HOOD.CE.FECHA]) + (HOOD.num(e[HOOD.CE.COSTO]) ? ' · ' + money(e[HOOD.CE.COSTO]) + ' c/u' : '') + (e[HOOD.CE.EFECTIVO] === 'SI' ? ' · efectivo' : '') + (e[HOOD.CE.NOTAS] ? ' · ' + e[HOOD.CE.NOTAS] : ''))),
+        h('div', { class: 't2' }, UI.fecha(e[HOOD.CE.FECHA]) + (HOOD.num(e[HOOD.CE.COSTO]) ? ' · ' + money(e[HOOD.CE.COSTO]) + ' c/u' : ' · SIN COSTO') + (e[HOOD.CE.EFECTIVO] === 'SI' ? ' · efectivo' : '') + (e[HOOD.CE.NOTAS] ? ' · ' + e[HOOD.CE.NOTAS] : ''))),
       h('div', { class: 'monto' }, money(e[HOOD.CE.TOTAL])))))));
   }
 

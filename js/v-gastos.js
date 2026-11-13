@@ -51,9 +51,9 @@
             h('div', { class: 't2' }, UI.fecha(g[HOOD.CG.FECHA]) + ' · ' + (esNom ? 'Sueldos' : (g[HOOD.CG.CAT] || 'Otros')) + (g[HOOD.CG.EFECTIVO] === 'SI' ? ' · efectivo' : '') + (g[HOOD.CG.NOTAS] ? ' · ' + g[HOOD.CG.NOTAS] : ''))),
             h('div', { class: 'monto' }, anulado ? UI.badge('anulado') : money(g[HOOD.CG.MONTO])),
             !anulado && !esNom ? h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
-              if (!await UI.confirmar('Anular gasto', 'Se anula "' + g[HOOD.CG.CONCEPTO] + '" por ' + money(g[HOOD.CG.MONTO]) + '.', 'Anular', true)) return;
-              const r = await Store.hacer('gasto_anular', { id: g[HOOD.CG.ID] }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Gasto anulado'); App.refresh();
-            } }, 'Anular') : null);
+              if (!await UI.confirmar('Eliminar gasto', 'Se borra "' + g[HOOD.CG.CONCEPTO] + '" por ' + money(g[HOOD.CG.MONTO]) + ' y deja de contar en gastos, utilidad y corte de caja.', 'Eliminar', true)) return;
+              const r = await Store.hacer('gasto_anular', { id: g[HOOD.CG.ID] }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Gasto eliminado'); App.refresh();
+            } }, 'Eliminar') : null);
         })))));
     }
   };

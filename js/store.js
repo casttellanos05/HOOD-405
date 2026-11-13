@@ -34,7 +34,7 @@ const Store = (() => {
     api: LS.getItem('hood_api') || (window.HOOD_CONFIG && window.HOOD_CONFIG.apiUrl) || '',
     users: [], user: null, key: '', snap: null, rev: '0',
     queue: [], rejected: [], view: null, hoy: UI.hoyLocal(),
-    online: navigator.onLine, syncing: false, lastSync: 0, lastError: '', listo: false
+    online: navigator.onLine, syncing: false, lastSync: 0, lastFull: 0, lastError: '', listo: false
   };
   const subs = [];
   const on = fn => { subs.push(fn); return () => subs.splice(subs.indexOf(fn), 1); };
@@ -106,7 +106,7 @@ const Store = (() => {
         S.users.push({ salt, hash: hashClave(salt, clave), rol: r.rol, usuario: r.usuario });
         await guardarUsuarios();
         S.user = { rol: r.rol, usuario: r.usuario }; S.key = clave;
-        S.snap = r.snap; S.rev = r.rev; S.lastSync = Date.now(); S.online = true; S.lastError = '';
+        S.snap = r.snap; S.rev = r.rev; S.lastSync = Date.now(); S.lastFull = Date.now(); S.online = true; S.lastError = '';
         await guardarSnap();
         SS.setItem('hood_k', clave);
         rebuild(); emit('login'); sincronizarPronto();
@@ -189,7 +189,8 @@ const Store = (() => {
     try {
       for (let vuelta = 0; vuelta < 12; vuelta++) {
         const lote = mias().slice(0, 40);
-        const r = await llamar({ a: 'sync', k: S.key, ops: lote, rev: S.rev, full: !!(o.completo || !S.snap) });
+        const pedirTodo = !!(o.completo || !S.snap);
+        const r = await llamar({ a: 'sync', k: S.key, ops: lote, rev: S.rev, full: pedirTodo });
         S.online = true;
         if (!r.ok) {
           if (r.auth === false) { S.lastError = 'Tu PIN o contraseña cambió. Vuelve a entrar.'; emit('authfail'); break; }
@@ -206,6 +207,7 @@ const Store = (() => {
           S.queue = S.queue.filter(y => y.id !== x.id); cambioCola = true;
           if (!res || res.ok === false) S.rejected.push({ id: x.id, tipo: x.tipo, por: x.por, f: x.f, h: x.h, resumen: resumenOp(x), msg: res && res.msg ? res.msg : 'El servidor no la aceptó', t: Date.now() });
         });
+        if (pedirTodo) S.lastFull = Date.now();
         if (r.snap) { S.snap = r.snap; S.rev = r.rev; }
         else if (r.same && S.snap) S.snap.hoy = r.hoy;
         S.lastSync = Date.now();
@@ -244,8 +246,11 @@ const Store = (() => {
 
   window.addEventListener('online', () => { S.online = true; emit('status'); sync(); });
   window.addEventListener('offline', () => { S.online = false; emit('status'); });
-  setInterval(() => { if (S.user && !document.hidden && navigator.onLine) sync(); }, 90000);
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user) { rebuild(); emit('data'); sync(); } });
+  /* Cada cierto tiempo se pide el Sheet completo: así se ven también los cambios hechos a mano en el Sheet (el contador de versión solo sube cuando cambia la app). */
+  const TODO_CADA = 10 * 60 * 1000;
+  const toca = () => Date.now() - S.lastFull > TODO_CADA;
+  setInterval(() => { if (S.user && !document.hidden && navigator.onLine) sync({ completo: toca() }); }, 90000);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && S.user) { rebuild(); emit('data'); sync({ completo: toca() }); } });
 
   return { S, on, iniciar, entrar, reanudar, salir, hacer, hacerEnLinea, consultar, sync, descartarRechazos, quitarRechazo, setApi, claveCambiada, pendientes: () => mias().length,
     view: () => S.view, hoy: () => S.hoy, rebuild: () => { rebuild(); emit('data'); }, nuevoId };

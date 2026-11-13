@@ -221,3 +221,59 @@ tfoot td { font-weight: 800; border-top: 2px solid var(--line); border-bottom: 0
 .col-buscar .resultados { max-height: 48vh; overflow-y: auto; padding-right: 2px; -webkit-overflow-scrolling: touch; }
 @media (min-width: 900px) { .col-buscar .resultados { max-height: calc(100vh - 190px); } }
 .res .cod b.coin { background: var(--info-bg); color: var(--ink); border-radius: 3px; padding: 0 1px; }
+
+
+/* ---- botón peligro, filas pulsables y ranking de vendedores ---- */
+.btn.peligro { border-color: #e3b3af; color: #8c1d17; background: #fff; }
+.btn.peligro:hover { background: var(--warn-bg); }
+.lista > button.item { width: 100%; text-align: left; background: transparent; border: 0; border-bottom: 1px solid #dfe5ea; font: inherit; color: inherit; cursor: pointer; }
+.lista > button.item:hover { background: var(--soft); }
+.lista > button.item:last-child { border-bottom: 0; }
+.lista > .item.rank.sel { background: var(--info-bg); border-radius: 10px; }
+.item.rank .medalla { width: 32px; text-align: center; font-size: 22px; flex: none; font-weight: 800; color: var(--muted); }
+.item.rank .prog { margin-top: 6px; }
+.nav button { min-width: 58px; }
+@media (min-width: 900px) { .nav button { min-width: 0; } }
+
+/* ---- informe imprimible ---- */
+#informe { position: fixed; inset: 0; z-index: 250; background: #56616b; overflow: auto; padding-bottom: 40px; }
+.inf-barra-top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; background: var(--dark); color: #fff; padding: 10px 14px; }
+.inf-ayuda { max-width: 794px; margin: 10px auto 0; padding: 0 12px; color: #dbe3ea; font-size: 13px; }
+.hoja { background: #fff; color: #1d252d; width: 794px; max-width: calc(100% - 16px); margin: 12px auto; padding: 28px 30px; box-sizing: border-box; box-shadow: 0 6px 30px rgba(0,0,0,.35); border-radius: 4px; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.inf-cab { display: flex; align-items: center; gap: 16px; background: #2f353b; color: #fff; border-radius: 10px; padding: 16px 20px; margin-bottom: 16px; }
+.inf-cab img { width: 58px; height: 58px; border-radius: 12px; background: #fff; }
+.inf-cab .marca { font-size: 13px; letter-spacing: 3px; font-weight: 800; color: #9fb2c4; }
+.inf-cab .tit { font-size: 25px; font-weight: 800; line-height: 1.15; }
+.inf-cab .per { font-size: 15px; color: #cfdbe6; margin-top: 2px; }
+.inf-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
+.inf-kpi { border: 1px solid #d9e0e6; border-left: 5px solid #4c6a84; border-radius: 8px; padding: 9px 12px; background: #f7f9fb; }
+.inf-kpi.ok { border-left-color: #2f7d5b; } .inf-kpi.mal { border-left-color: #c0392b; }
+.inf-kpi .et { font-size: 11px; text-transform: uppercase; letter-spacing: .6px; color: #61707e; font-weight: 700; }
+.inf-kpi .val { font-size: 22px; font-weight: 800; }
+.inf-kpi .nota { font-size: 11px; color: #61707e; }
+.inf-sec { margin-bottom: 14px; }
+.inf-sec h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #2f4c66; border-bottom: 2px solid #2f4c66; padding-bottom: 3px; margin: 0 0 6px; }
+.inf-dos { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.inf-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+.inf-tabla td, .inf-tabla th { padding: 4px 2px; border-bottom: 1px solid #e6ebf0; text-align: left; }
+.inf-tabla th { font-size: 11px; color: #61707e; text-transform: uppercase; }
+.inf-tabla .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.inf-tabla tr.fuerte td { font-weight: 800; }
+.inf-tabla tr.total td { font-weight: 800; font-size: 15px; border-top: 2px solid #2f353b; }
+.inf-tabla tr.total.ok td { color: #1f6b4a; } .inf-tabla tr.total.mal td { color: #a8271c; }
+.inf-tabla tr.suave td, .suave { color: #61707e; }
+.inf-barra { margin-bottom: 6px; } .inf-barra .fila-b { display: flex; justify-content: space-between; font-size: 13px; }
+.inf-barra .tira { height: 7px; background: #e6ebf0; border-radius: 4px; overflow: hidden; } .inf-barra .tira div { height: 100%; background: #4c6a84; }
+.inf-pie { border-top: 1px solid #d9e0e6; margin-top: 14px; padding-top: 8px; font-size: 11px; color: #61707e; text-align: center; }
+.hoja .grafica svg { width: 100%; height: auto; }
+@media (max-width: 640px) { .inf-kpis { grid-template-columns: repeat(2, 1fr); } .inf-dos { grid-template-columns: 1fr; } .hoja { padding: 16px 14px; } }
+@media print {
+  @page { size: A4; margin: 11mm; }
+  body.imprimiendo { background: #fff !important; }
+  body.imprimiendo #app, body.imprimiendo #toasts, body.imprimiendo .modal-fondo { display: none !important; }
+  body.imprimiendo #informe { position: static; background: #fff; overflow: visible; padding: 0; }
+  body.imprimiendo .inf-barra-top, body.imprimiendo .inf-ayuda { display: none !important; }
+  body.imprimiendo .hoja { width: auto; max-width: none; margin: 0; padding: 0; box-shadow: none; border-radius: 0; }
+  body.imprimiendo .inf-kpis { grid-template-columns: repeat(3, 1fr); } body.imprimiendo .inf-dos { grid-template-columns: 1fr 1fr; }
+  body.imprimiendo .no-corte { break-inside: avoid; }
+}

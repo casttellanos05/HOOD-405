@@ -136,9 +136,9 @@
           e.pagos.length ? h('div', { style: { margin: '6px 0' } }, e.pagos.map(g => h('div', { class: 'fila sp', style: { fontSize: '13px' } },
             h('span', { class: 'muted' }, UI.fecha(g.fecha) + ' · ' + g.forma + (g.nota ? ' · ' + g.nota : '')), h('span', null, h('span', { class: 'num' }, money(g.monto) + ' '),
               g.monto > 0 ? h('button', { class: 'btn chico ghost', type: 'button', onclick: async () => {
-                if (!await UI.confirmar('Anular pago', 'Se anula el pago de ' + money(g.monto) + ' a ' + e.nombre + ' y se quita de los gastos.', 'Anular pago', true)) return;
-                const r = await Store.hacer('pago_anular', { id: g.id }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Pago anulado'); App.refresh();
-              } }, 'Anular') : null)))) : null,
+                if (!await UI.confirmar('Eliminar pago', 'Se borra el pago de ' + money(g.monto) + ' a ' + e.nombre + ' y su gasto de Sueldos. Lo pagado vuelve a quedar pendiente en esta semana.', 'Eliminar pago', true)) return;
+                const r = await Store.hacer('pago_anular', { id: g.id }); if (!r.ok) { UI.toast(r.msg, 'mal'); return; } UI.toast('Pago eliminado'); App.refresh();
+              } }, 'Eliminar') : null)))) : null,
           totalPagar > 0.004 ? h('button', { class: 'btn acento', type: 'button', style: { marginTop: '6px' }, onclick: () => pagar(e, lunes) }, 'Registrar pago') : null,
           e.atrasadas.length ? h('small', { style: { display: 'block', marginTop: '6px' } }, 'Remanente: ' + e.atrasadas.map(a => 'semana del ' + UI.fechaCorta(a.semana) + ' ' + money(a.pendiente)).join(' · ')) : null);
       })));

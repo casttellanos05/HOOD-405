@@ -3,10 +3,10 @@ const App = (() => {
   const { h } = UI;
   const raiz = document.getElementById('app');
   const TABS = {
-    dueno: ['venta', 'inventario', 'corte', 'gastos', 'resumen', 'creditos', 'apartados', 'config'],
+    dueno: ['venta', 'inventario', 'corte', 'gastos', 'resumen', 'vendedores', 'creditos', 'apartados', 'cancelaciones', 'config'],
     vendedor: ['venta', 'comisiones', 'creditos', 'apartados']
   };
-  const NOMBRES = { venta: 'Venta', inventario: 'Inventario', corte: 'Corte', gastos: 'Gastos', resumen: 'Resumen', creditos: 'Créditos', apartados: 'Apartados', config: 'Config', comisiones: 'Comisiones' };
+  const NOMBRES = { venta: 'Venta', inventario: 'Inventario', corte: 'Corte', gastos: 'Gastos', resumen: 'Resumen', vendedores: 'Vendedores', cancelaciones: 'Cancelaciones', creditos: 'Créditos', apartados: 'Apartados', config: 'Config', comisiones: 'Comisiones' };
   let tab = 'venta', vista = null, estadoEl = null, navEl = null, sucio = false, instalador = null, swNuevo = null;
 
   /* ---------- acceso ---------- */
@@ -60,6 +60,9 @@ const App = (() => {
     const c = contadores();
     TABS[Store.S.user.rol].forEach(t => navEl.appendChild(h('button', { type: 'button', class: t === tab ? 'on' : '', onclick: () => ir(t), 'aria-current': t === tab ? 'page' : null },
       UI.icono(Views[t].icono), h('span', null, NOMBRES[t]), c[t] ? h('span', { class: 'punto' }, c[t]) : null)));
+    // en el celular el menú se desliza: que la pestaña activa quede a la vista
+    const on = navEl.querySelector('.on');
+    if (on && window.innerWidth < 900 && navEl.scrollWidth > navEl.clientWidth) navEl.scrollLeft = Math.max(0, on.offsetLeft - (navEl.clientWidth - on.clientWidth) / 2);
   }
   function ir(t) { tab = t; sucio = false; pintarNav(); render(); window.scrollTo({ top: 0 }); }
 
