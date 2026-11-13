@@ -1,0 +1,17 @@
+{
+  "name": "HOOD 405",
+  "short_name": "HOOD 405",
+  "description": "Punto de venta, inventario, créditos y cortes de HOOD 405",
+  "lang": "es-MX",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#dde3e8",
+  "theme_color": "#2f353b",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
