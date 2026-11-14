@@ -3,10 +3,10 @@ const App = (() => {
   const { h } = UI;
   const raiz = document.getElementById('app');
   const TABS = {
-    dueno: ['venta', 'inventario', 'corte', 'gastos', 'resumen', 'vendedores', 'creditos', 'apartados', 'cancelaciones', 'config'],
+    dueno: ['venta', 'inventario', 'catalogo', 'corte', 'gastos', 'resumen', 'vendedores', 'creditos', 'apartados', 'cancelaciones', 'config'],
     vendedor: ['venta', 'comisiones', 'creditos', 'apartados']
   };
-  const NOMBRES = { venta: 'Venta', inventario: 'Inventario', corte: 'Corte', gastos: 'Gastos', resumen: 'Resumen', vendedores: 'Vendedores', cancelaciones: 'Cancelaciones', creditos: 'Créditos', apartados: 'Apartados', config: 'Config', comisiones: 'Comisiones' };
+  const NOMBRES = { venta: 'Venta', inventario: 'Inventario', catalogo: 'Catálogo', corte: 'Corte', gastos: 'Gastos', resumen: 'Resumen', vendedores: 'Vendedores', cancelaciones: 'Cancelaciones', creditos: 'Créditos', apartados: 'Apartados', config: 'Config', comisiones: 'Comisiones' };
   let tab = 'venta', vista = null, estadoEl = null, navEl = null, sucio = false, instalador = null, swNuevo = null;
 
   /* ---------- acceso ---------- */

@@ -97,7 +97,7 @@ var HOOD = (function () {
   const CA = { ID: 0, FECHA: 1, HORA: 2, TEL: 3, CLIENTE: 4, MONTO: 5, FORMA: 6, UTIL: 7, VENDEDOR: 8, NOTA: 9, APART: 10 };
   const CP = { ID: 0, FECHA: 1, HORA: 2, TEL: 3, CLIENTE: 4, CODIGO: 5, PRODUCTO: 6, CANT: 7, PRECIO: 8, TOTAL: 9, COSTO: 10, UTIL: 11, VENDEDOR: 12,
     PCT_COM: 13, VENCE: 14, ABONADO: 15, SALDO: 16, ESTADO: 17, CIERRE: 18, COD_DESC: 19, PCT_DESC: 20, DESC: 21 };
-  const CPR = { CODIGO: 0, NOMBRE: 1, CAT: 2, TALLA: 3, COLOR: 4, COSTO: 5, PRECIO: 6, STOCK: 7, MIN: 8, ACTIVO: 9, DISP: 10 }; // DISP no existe en el Sheet: se calcula
+  const CPR = { CODIGO: 0, NOMBRE: 1, CAT: 2, TALLA: 3, COLOR: 4, COSTO: 5, PRECIO: 6, STOCK: 7, MIN: 8, ACTIVO: 9, FOTO: 10, DISP: 11 }; // FOTO es la columna K del Sheet; DISP no existe en el Sheet: se calcula
   const CE = { FECHA: 0, CODIGO: 1, CANT: 2, NOTAS: 3, COSTO: 4, TOTAL: 5, EFECTIVO: 6, ID: 7 };
   const CC = { TEL: 0, NOMBRE: 1, LIMITE: 2, ACTIVO: 3, COMPRAS: 4, ABONOS: 5, SALDO: 6, PROX: 7, ATRASO: 8, ESTADO: 9 };
   const CG = { FECHA: 0, CONCEPTO: 1, MONTO: 2, EFECTIVO: 3, CAT: 4, ID: 5, NOTAS: 6 };
@@ -106,7 +106,7 @@ var HOOD = (function () {
 
   /** Cómo se guarda cada tabla en el Sheet (lo usa el servidor para leer y escribir). */
   const TABLAS = {
-    productos: { hoja: 'Productos', cols: 10, fechas: [], horas: [], textos: [0] },
+    productos: { hoja: 'Productos', cols: 11, fechas: [], horas: [], textos: [0] },
     entradas: { hoja: 'Entradas', cols: 8, fechas: [0], horas: [], textos: [1, 7] },
     ventas: { hoja: 'Ventas', cols: 24, fechas: [1, 20, 23], horas: [2], textos: [3, 21] },
     abonos: { hoja: 'Abonos', cols: 11, fechas: [1], horas: [2], textos: [3, 10] },
@@ -118,7 +118,7 @@ var HOOD = (function () {
   };
 
   const ABONO_FORMAS = ['Efectivo', 'Transferencia'];
-  const SOLO_DUENO = { producto_alta: 1, producto_edit: 1, entrada: 1, entrada_editar: 1, entrada_anular: 1, gasto: 1, gasto_anular: 1, pago: 1, pago_anular: 1, corte: 1, cliente: 1, config: 1, cancelar: 1 };
+  const SOLO_DUENO = { producto_alta: 1, producto_edit: 1, producto_foto: 1, entrada: 1, entrada_editar: 1, entrada_anular: 1, gasto: 1, gasto_anular: 1, pago: 1, pago_anular: 1, corte: 1, cliente: 1, config: 1, cancelar: 1 };
 
   /* ============================================================
    * 3. BASE DE DATOS EN MEMORIA
@@ -585,7 +585,7 @@ var HOOD = (function () {
     if (costo < 0) return { ok: false, msg: 'El costo no puede ser negativo' };
     if (cant < 0) return { ok: false, msg: 'La cantidad no puede ser negativa' };
     if (cant > 0 && costo === 0 && a.reinv !== false && a.costoCero !== true) return { ok: false, costoCero: true, msg: 'El costo por pieza es $0: la reinversión quedaría en $0. Escribe el costo, o confirma que no tuvo costo.' };
-    db.productos.push([codigo, nombre, String(a.cat || '').trim(), String(a.talla || '').trim(), String(a.color || '').trim(), costo, precio, 0, min, 'SI', 0]);
+    db.productos.push([codigo, nombre, String(a.cat || '').trim(), String(a.talla || '').trim(), String(a.color || '').trim(), costo, precio, 0, min, 'SI', '', 0]);
     let total = 0;
     if (cant > 0) total = nuevaEntrada(db, op, st, { fecha: fechaArg(a.fecha, op), codigo, cant, costo, notas: a.notas || 'Alta de producto', efectivo: a.efectivo, reinv: a.reinv });
     return { ok: true, codigo, reinversion: total };
@@ -609,6 +609,18 @@ var HOOD = (function () {
     if (a.min !== undefined) p[CPR.MIN] = Math.max(0, Math.floor(num(a.min)));
     if (a.activo !== undefined) p[CPR.ACTIVO] = a.activo === false || String(a.activo).toUpperCase() === 'NO' ? 'NO' : 'SI';
     return { ok: true };
+  }
+
+  /** Guarda (o quita) el nombre de la foto del catálogo en varios códigos a la vez (todas las tallas de una prenda). */
+  function opProductoFoto(db, op) {
+    const a = op.args || {}, mp = mapaProd(db);
+    const codigos = (Array.isArray(a.codigos) ? a.codigos : [a.codigo]).map(c => String(c == null ? '' : c)).filter(Boolean);
+    if (!codigos.length) return { ok: false, msg: 'Elige al menos un producto' };
+    const foto = String(a.foto == null ? '' : a.foto).trim().toLowerCase();
+    if (foto !== '' && !/^[a-z0-9][a-z0-9_-]{0,39}$/.test(foto)) return { ok: false, msg: 'Nombre de foto inválido' };
+    if (codigos.some(c => !mp[c])) return { ok: false, msg: 'Hay códigos que no existen' };
+    codigos.forEach(c => { mp[c][CPR.FOTO] = foto; });
+    return { ok: true, n: codigos.length };
   }
 
   function opEntrada(db, op) {
@@ -923,7 +935,7 @@ var HOOD = (function () {
    * ============================================================ */
   const OPS = {
     venta: opVenta, credito: opCredito, abono: opAbono, apartado: opApartado, apartado_abono: opApartadoAbono,
-    producto_alta: opProductoAlta, producto_edit: opProductoEdit, entrada: opEntrada, entrada_editar: opEntradaEditar, entrada_anular: opEntradaAnular, cancelar: opCancelar,
+    producto_alta: opProductoAlta, producto_edit: opProductoEdit, producto_foto: opProductoFoto, entrada: opEntrada, entrada_editar: opEntradaEditar, entrada_anular: opEntradaAnular, cancelar: opCancelar,
     gasto: opGasto, gasto_anular: opGastoAnular, pago: opPago, pago_anular: opPagoAnular, corte: opCorte, cliente: opCliente, config: opConfig
   };
   /** Operaciones que el vendedor puede guardar en la cola sin internet (el resto necesita consultar cuentas en el servidor). */
@@ -1292,10 +1304,38 @@ var HOOD = (function () {
         gastos: db.gastos, pagos: db.pagos, cortes: db.cortes, config: db.config }, avisos: avisos(db, hoy) };
   }
 
+  /**
+   * Lo único que ve el público: prendas ACTIVAS con foto y con existencia. Si se agotó hace 7 días o menos sigue visible (en gris);
+   * pasada la semana se oculta. Nunca incluye costos ni existencia exacta (tope de 20).
+   * La fecha de agotado se toma de la última venta o apartado de ese código; sin fecha conocida se oculta.
+   */
+  function catalogoPublico(db, hoy, diasGris) {
+    const dias = diasGris == null ? 7 : diasGris, ultima = {};
+    const marca = (c, f) => { c = str(c); f = str(f); if (c !== '' && f !== '' && (!ultima[c] || f > ultima[c])) ultima[c] = f; };
+    db.ventas.forEach(r => { if (r[CV.ID] !== '') marca(r[CV.CODIGO], r[CV.FECHA]); });
+    db.apartados.forEach(r => { if (r[CP.ID] !== '') marca(r[CP.CODIGO], r[CP.FECHA]); });
+    const items = [];
+    db.productos.forEach(r => {
+      if (r[0] === '' || r[0] == null || !activoProd(r)) return;
+      const foto = str(r[CPR.FOTO]).trim();
+      if (!foto) return;
+      const disp = Math.floor(num(r[CPR.DISP]));
+      let ag = '';
+      if (disp <= 0) {
+        const f = ultima[String(r[0])];
+        if (!f || difDias(hoy, f) > dias) return;
+        ag = f;
+      }
+      items.push({ c: String(r[0]), n: str(r[CPR.NOMBRE]), cat: str(r[CPR.CAT]), t: str(r[CPR.TALLA]), col: str(r[CPR.COLOR]), p: num(r[CPR.PRECIO]),
+        d: Math.max(0, Math.min(20, disp)), f: foto, ag });
+    });
+    return { ok: true, hoy, items };
+  }
+
   /** El vendedor NUNCA recibe costos, utilidad, gastos, otros vendedores, nombres de códigos de descuento ni PINs. */
   function snapshotVendedor(db, usuario, hoy) {
     const v = vendedorDe(db, usuario);
-    const productos = db.productos.filter(r => r[0] !== '' && activoProd(r)).map(r => [r[0], r[1], r[2], r[3], r[4], null, r[6], 0, r[8], 'SI', num(r[CPR.DISP])]);
+    const productos = db.productos.filter(r => r[0] !== '' && activoProd(r)).map(r => [r[0], r[1], r[2], r[3], r[4], null, r[6], 0, r[8], 'SI', '', num(r[CPR.DISP])]);
     const anio = hoy.slice(0, 4) + '-01-01';
     const ventas = db.ventas.filter(f => f[CV.ID] !== '' && f[CV.VENDEDOR] === usuario && f[CV.FECHA] >= anio)
       .map(f => { const c = f.slice(); c[CV.COSTO] = null; c[CV.UTIL] = null; c[CV.TEL] = ''; return c; });
@@ -1315,7 +1355,7 @@ var HOOD = (function () {
     configBase, nuevaDb, normalizar, textoProd, activoProd, mapaProd, vendedorDe, clienteActivo, codigoInfo,
     recomputeDisp, recalcular, creditos, apartados, sincronizarApartados, revisarApartados, aplicar, aplicarSeguro, validarConfig,
     inventario, periodo, serie, resumenVendedores, corteDiario, nomina, nominaSemana, semanasNomina, listaCreditos, listaApartados, avisos,
-    cuentaCliente, cuentaApartados, meta, misComisiones, snapshotDueno, snapshotVendedor, minApartado, esSueldos, CAT_GASTOS_BASE };
+    cuentaCliente, cuentaApartados, meta, misComisiones, catalogoPublico, snapshotDueno, snapshotVendedor, minApartado, esSueldos, CAT_GASTOS_BASE };
 })();
 
 if (typeof module !== 'undefined' && module.exports) module.exports = HOOD;
