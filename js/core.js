@@ -616,10 +616,15 @@ var HOOD = (function () {
     const a = op.args || {}, mp = mapaProd(db);
     const codigos = (Array.isArray(a.codigos) ? a.codigos : [a.codigo]).map(c => String(c == null ? '' : c)).filter(Boolean);
     if (!codigos.length) return { ok: false, msg: 'Elige al menos un producto' };
-    const foto = String(a.foto == null ? '' : a.foto).trim().toLowerCase();
-    if (foto !== '' && !/^[a-z0-9][a-z0-9_-]{0,39}$/.test(foto)) return { ok: false, msg: 'Nombre de foto inválido' };
+    const limpia = x => String(x == null ? '' : x).trim().toLowerCase(), valida = x => /^[a-z0-9][a-z0-9_-]{0,39}$/.test(x);
+    const foto = limpia(a.foto), foto2 = limpia(a.foto2);
+    if (foto !== '' && !valida(foto)) return { ok: false, msg: 'Nombre de foto inválido' };
+    if (foto2 !== '' && !valida(foto2)) return { ok: false, msg: 'Nombre de foto inválido' };
+    if (foto2 !== '' && foto === '') return { ok: false, msg: 'La segunda foto necesita una foto principal' };
+    if (foto2 !== '' && foto2 === foto) return { ok: false, msg: 'Las dos fotos no pueden ser la misma' };
     if (codigos.some(c => !mp[c])) return { ok: false, msg: 'Hay códigos que no existen' };
-    codigos.forEach(c => { mp[c][CPR.FOTO] = foto; });
+    // Columna K: "foto" o "foto,foto2" (hasta 2 fotos por prenda; las fotos guardadas antes, con un solo nombre, siguen valiendo)
+    codigos.forEach(c => { mp[c][CPR.FOTO] = foto2 !== '' ? foto + ',' + foto2 : foto; });
     return { ok: true, n: codigos.length };
   }
 
@@ -1317,7 +1322,7 @@ var HOOD = (function () {
     const items = [];
     db.productos.forEach(r => {
       if (r[0] === '' || r[0] == null || !activoProd(r)) return;
-      const foto = str(r[CPR.FOTO]).trim();
+      const fotos = str(r[CPR.FOTO]).split(',').map(x => x.trim()).filter(Boolean).slice(0, 2), foto = fotos[0] || '';
       if (!foto) return;
       const disp = Math.floor(num(r[CPR.DISP]));
       let ag = '';
@@ -1327,7 +1332,7 @@ var HOOD = (function () {
         ag = f;
       }
       items.push({ c: String(r[0]), n: str(r[CPR.NOMBRE]), cat: str(r[CPR.CAT]), t: str(r[CPR.TALLA]), col: str(r[CPR.COLOR]), p: num(r[CPR.PRECIO]),
-        d: Math.max(0, Math.min(20, disp)), f: foto, ag });
+        d: Math.max(0, Math.min(20, disp)), f: foto, f2: fotos[1] || '', ag });
     });
     return { ok: true, hoy, items };
   }

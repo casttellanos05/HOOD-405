@@ -302,3 +302,7 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .bc-num { font-weight: 800; font-size: 14px; white-space: nowrap; text-align: right; min-width: 64px; }
 .bc-num small { font-weight: 600; color: #6b7681; }
 @media print { .bc-tira, .bc-tira div { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+.cat-minis { display: flex; flex-direction: column; gap: 4px; flex: none; }
+.cat-acciones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.cat-item { align-items: flex-start; }

@@ -1,5 +1,5 @@
 /* HOOD 405 · service worker: guarda la app para que abra sin internet */
-const VERSION = 'hood405-5b23a03a';
+const VERSION = 'hood405-bc4eb53d';
 const ARCHIVOS = [
   './', 'index.html', 'config.js', 'manifest.webmanifest', 'css/app.css',
   'js/core.js', 'js/ui.js', 'js/store.js', 'js/v-venta.js', 'js/v-inventario.js', 'js/v-corte.js', 'js/v-gastos.js', 'js/categorias.js', 'js/imprimir.js', 'js/v-resumen.js', 'js/v-vendedores.js', 'js/v-cancelaciones.js', 'js/v-catalogo.js',

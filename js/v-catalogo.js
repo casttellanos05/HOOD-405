@@ -20,13 +20,15 @@
       if (r[0] === '' || r[0] == null || !HOOD.activoProd(r)) return;
       const clave = UI.norm(String(r[CPR.NOMBRE])).trim() + '|' + UI.norm(String(r[CPR.COLOR])).trim();
       const x = g[clave] || (g[clave] = { clave, nombre: String(r[CPR.NOMBRE]), color: String(r[CPR.COLOR]), cat: String(r[CPR.CAT]), items: [] });
-      x.items.push({ codigo: String(r[0]), talla: String(r[CPR.TALLA]), foto: String(r[CPR.FOTO] || '').trim(), disp: HOOD.num(r[CPR.DISP]), precio: HOOD.num(r[CPR.PRECIO]) });
+      const fs = String(r[CPR.FOTO] || '').split(',').map(z => z.trim()).filter(Boolean);
+      x.items.push({ codigo: String(r[0]), talla: String(r[CPR.TALLA]), foto: fs[0] || '', foto2: fs[1] || '', disp: HOOD.num(r[CPR.DISP]), precio: HOOD.num(r[CPR.PRECIO]) });
     });
     return Object.keys(g).map(k => {
       const x = g[k];
       x.items.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
       const con = x.items.filter(i => i.foto), sin = x.items.filter(i => !i.foto);
       x.foto = con.length ? con[0].foto : '';
+      x.foto2 = con.length ? (con.find(i => i.foto === x.foto && i.foto2) || {}).foto2 || '' : '';
       x.sinFoto = sin;
       x.estado = !con.length ? 'sin' : (sin.length ? 'parcial' : 'con');
       x.piezas = x.items.reduce((s, i) => s + Math.max(0, i.disp), 0);
@@ -134,9 +136,10 @@
   }
 
   /** Elegir foto → vista previa → subir. `x` es la prenda; `cambiar` indica que ya tenía foto. */
-  function subirFoto(x, cambiar) {
+  function subirFoto(x, cambiar, slot) {
+    slot = slot === 2 ? 2 : 1;
     const cfg = leer();
-    if (!listo(cfg)) { conexion(() => subirFoto(x, cambiar)); return; }
+    if (!listo(cfg)) { conexion(() => subirFoto(x, cambiar, slot)); return; }
     if (!navigator.onLine) { UI.toast('Para subir fotos necesitas internet', 'mal'); return; }
     const archivo = h('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
     document.body.appendChild(archivo);
@@ -145,12 +148,13 @@
       if (!f) return;
       let img;
       try { img = await reducir(f); } catch (e) { UI.toast(e.message, 'mal', 5000); return; }
-      vistaPrevia(x, cambiar, img, cfg);
+      vistaPrevia(x, cambiar, img, cfg, slot);
     });
     archivo.click();
   }
 
-  function vistaPrevia(x, cambiar, img, cfg) {
+  function vistaPrevia(x, cambiar, img, cfg, slot) {
+    slot = slot === 2 ? 2 : 1;
     const url = URL.createObjectURL(img.blob);
     const marcas = x.items.map(i => ({ i, cb: h('input', { type: 'checkbox', checked: true }) }));
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
@@ -161,27 +165,29 @@
       h('div', { class: 'fuerte', style: { margin: '12px 0 4px' } }, 'Se aplica a estos códigos:'),
       h('div', { class: 'cat-codigos' }, marcas.map(m => h('label', { class: 'cat-cod' }, m.cb, h('span', null, m.i.codigo + (m.i.talla ? ' · ' + m.i.talla : ''))))),
       msg);
-    const m = UI.modal({ titulo: cambiar ? 'Cambiar foto' : 'Subir foto', cuerpo, ancho: '520px', alCerrar: () => URL.revokeObjectURL(url), acciones: [{ texto: 'Cancelar', tipo: 'ghost' },
+    const m = UI.modal({ titulo: slot === 2 ? (cambiar ? 'Cambiar segunda foto' : 'Subir segunda foto') : (cambiar ? 'Cambiar foto' : 'Subir foto'), cuerpo, ancho: '520px', alCerrar: () => URL.revokeObjectURL(url), acciones: [{ texto: 'Cancelar', tipo: 'ghost' },
       { texto: 'Subir foto', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
         const codigos = marcas.filter(z => z.cb.checked).map(z => z.i.codigo);
         msg.style.display = 'none';
         if (!codigos.length) { msg.textContent = 'Marca al menos un código.'; msg.style.display = ''; return; }
         btn.disabled = true; btn.textContent = 'Subiendo…';
-        const anterior = x.foto;
-        const nombre = cambiar && anterior ? nombreBase(x) + '-' + Date.now().toString(36).slice(-4) : nombreBase(x);
+        const anterior = slot === 2 ? x.foto2 : x.foto;
+        const base = nombreBase(x) + (slot === 2 ? '-2' : '');
+        const nombre = cambiar && anterior ? base + '-' + Date.now().toString(36).slice(-4) : base;
         try {
           await subirArchivo(cfg, nombre, img.base64);
-          const r = await Store.hacer('producto_foto', { codigos, foto: nombre });
+          // la columna guarda las dos fotos juntas: la que no se cambia se manda igual
+          const r = await Store.hacer('producto_foto', slot === 2 ? { codigos, foto: x.foto, foto2: nombre } : { codigos, foto: nombre, foto2: x.foto2 || '' });
           if (!r.ok) throw new Error(r.msg || 'No se pudo guardar la foto en el inventario');
         } catch (e) { btn.disabled = false; btn.textContent = 'Subir foto'; msg.textContent = e.message; msg.style.display = ''; return; }
         if (cambiar && anterior && anterior !== nombre) borrarArchivo(cfg, anterior);
-        cerrar(); UI.toast('Foto subida · aparece en el catálogo en 1–2 minutos', 'ok', 5000); App.refresh();
+        cerrar(); UI.toast((slot === 2 ? 'Segunda foto subida' : 'Foto subida') + ' · aparece en el catálogo en 1–2 minutos', 'ok', 5000); App.refresh();
       } }] });
     return m;
   }
 
   async function usarFotoActual(x) {
-    const r = await Store.hacer('producto_foto', { codigos: x.sinFoto.map(i => i.codigo), foto: x.foto });
+    const r = await Store.hacer('producto_foto', { codigos: x.sinFoto.map(i => i.codigo), foto: x.foto, foto2: x.foto2 || '' });
     if (!r.ok) { UI.toast(r.msg, 'mal'); return; }
     UI.toast('Listo: las tallas nuevas usan la misma foto', 'ok'); App.refresh();
   }
@@ -190,6 +196,13 @@
     const r = await Store.hacer('producto_foto', { codigos: x.items.map(i => i.codigo), foto: '' });
     if (!r.ok) { UI.toast(r.msg, 'mal'); return; }
     UI.toast('Foto quitada', 'ok'); App.refresh();
+  }
+
+  async function quitarSegunda(x) {
+    if (!await UI.confirmar('Quitar la segunda foto', titulo(x) + ' se queda solo con su foto principal. El archivo se queda en GitHub.', 'Sí, quitar', true)) return;
+    const r = await Store.hacer('producto_foto', { codigos: x.items.map(i => i.codigo), foto: x.foto, foto2: '' });
+    if (!r.ok) { UI.toast(r.msg, 'mal'); return; }
+    UI.toast('Segunda foto quitada', 'ok'); App.refresh();
   }
 
   /* ---------- pantalla ---------- */
@@ -227,12 +240,16 @@
       const con = h('div', { class: 'card' }, h('h3', null, 'Con foto en el catálogo (' + tienen.length + ')'));
       if (!tienen.length) con.appendChild(UI.vacio('Aún no has subido fotos.'));
       else {
+        const mini = nom => baseUrl(cfg) && nom ? h('img', { class: 'cat-mini', loading: 'lazy', alt: '', src: baseUrl(cfg) + '/fotos/' + encodeURIComponent(nom) + '.jpg', onerror: ev => { ev.currentTarget.style.visibility = 'hidden'; } }) : null;
         con.appendChild(h('div', { class: 'lista' }, tienen.slice(0, est.maxCon).map(x => h('div', { class: 'item cat-item' },
-          baseUrl(cfg) ? h('img', { class: 'cat-mini', loading: 'lazy', alt: '', src: baseUrl(cfg) + '/fotos/' + encodeURIComponent(x.foto) + '.jpg', onerror: ev => { ev.currentTarget.style.visibility = 'hidden'; } }) : null,
+          h('div', { class: 'cat-minis' }, mini(x.foto), mini(x.foto2)),
           h('div', { class: 'grow' }, h('div', { class: 't1' }, titulo(x)),
-            h('div', { class: 't2' }, (x.cat ? x.cat + ' · ' : '') + 'tallas ' + tallas(x) + ' · ' + UI.num(x.piezas) + ' en existencia' + (x.piezas <= 0 ? ' · agotada' : ''))),
-          h('button', { class: 'btn chico', type: 'button', onclick: () => subirFoto(x, true) }, 'Cambiar'),
-          h('button', { class: 'btn chico peligro', type: 'button', onclick: () => quitarFoto(x) }, 'Quitar')))));
+            h('div', { class: 't2' }, (x.cat ? x.cat + ' · ' : '') + 'tallas ' + tallas(x) + ' · ' + UI.num(x.piezas) + ' en existencia' + (x.piezas <= 0 ? ' · agotada' : '') + ' · ' + (x.foto2 ? '2 fotos' : '1 foto')),
+            h('div', { class: 'cat-acciones' },
+              h('button', { class: 'btn chico', type: 'button', onclick: () => subirFoto(x, true, 1) }, 'Cambiar foto'),
+              h('button', { class: 'btn chico', type: 'button', onclick: () => subirFoto(x, !!x.foto2, 2) }, x.foto2 ? 'Cambiar 2.ª foto' : '+ Agregar 2.ª foto'),
+              x.foto2 ? h('button', { class: 'btn chico peligro', type: 'button', onclick: () => quitarSegunda(x) }, 'Quitar 2.ª') : null,
+              h('button', { class: 'btn chico peligro', type: 'button', onclick: () => quitarFoto(x) }, 'Quitar fotos')))))));
         if (tienen.length > est.maxCon) con.appendChild(h('button', { class: 'btn', type: 'button', style: { marginTop: '8px' }, onclick: () => { est.maxCon += 30; App.refresh(); } }, 'Mostrar más'));
       }
       root.appendChild(con);
