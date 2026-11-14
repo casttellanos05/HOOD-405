@@ -23,6 +23,12 @@
       const fs = String(r[CPR.FOTO] || '').split(',').map(z => z.trim()).filter(Boolean);
       x.items.push({ codigo: String(r[0]), talla: String(r[CPR.TALLA]), foto: fs[0] || '', foto2: fs[1] || '', disp: HOOD.num(r[CPR.DISP]), precio: HOOD.num(r[CPR.PRECIO]) });
     });
+    // Si dos grupos comparten la misma foto (el mismo producto con el nombre escrito distinto en cada talla), son una sola prenda.
+    const padre = {}, raiz = k => { while (padre[k] !== k) k = padre[k] = padre[padre[k]]; return k; };
+    Object.keys(g).forEach(k => { padre[k] = k; });
+    const dueno = {};
+    Object.keys(g).forEach(k => g[k].items.forEach(i => { if (!i.foto) return; if (dueno[i.foto] === undefined) dueno[i.foto] = k; else padre[raiz(k)] = raiz(dueno[i.foto]); }));
+    Object.keys(g).forEach(k => { const r = raiz(k); if (r !== k) { g[r].items = g[r].items.concat(g[k].items); delete g[k]; } });
     return Object.keys(g).map(k => {
       const x = g[k];
       x.items.sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
@@ -157,6 +163,26 @@
     slot = slot === 2 ? 2 : 1;
     const url = URL.createObjectURL(img.blob);
     const marcas = x.items.map(i => ({ i, cb: h('input', { type: 'checkbox', checked: true }) }));
+    const extra = {}; // otros códigos elegidos para usar esta misma foto: { codigo: true }
+    const db = Store.view(), enX = {}; x.items.forEach(i => { enX[i.codigo] = true; });
+    const otros = db.productos.filter(r => r[0] !== '' && r[0] != null && HOOD.activoProd(r) && !enX[String(r[0])]).map(r => ({ codigo: String(r[0]), nombre: String(r[CPR.NOMBRE]), talla: String(r[CPR.TALLA]), color: String(r[CPR.COLOR]), tiene: !!String(r[CPR.FOTO] || '').trim() }));
+    const palabra = UI.norm(x.nombre).split(' ')[0] || '';
+    const buscar = UI.entrada({ placeholder: 'Buscar por código, nombre, talla o color…', autocapitalize: 'none', spellcheck: false });
+    const lista = h('div', { class: 'cat-codigos cat-otros' });
+    const pintarOtros = () => {
+      const q = UI.norm(buscar.value).trim().split(/\s+/).filter(Boolean);
+      const hay = o => UI.norm(o.codigo + ' ' + o.nombre + ' ' + o.talla + ' ' + o.color);
+      let l = otros.filter(o => extra[o.codigo] || q.every(w => hay(o).indexOf(w) >= 0));
+      // sin búsqueda: primero los que se parecen (misma primera palabra del nombre) y los que aún no tienen foto
+      l.sort((a, b) => (!!extra[b.codigo] - !!extra[a.codigo]) || ((UI.norm(b.nombre).indexOf(palabra) === 0) - (UI.norm(a.nombre).indexOf(palabra) === 0)) || (a.tiene - b.tiene) || a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
+      while (lista.firstChild) lista.removeChild(lista.firstChild);
+      if (!l.length) { lista.appendChild(h('div', { class: 'muted' }, 'No hay otros productos con esa búsqueda.')); return; }
+      l.slice(0, 24).forEach(o => lista.appendChild(h('label', { class: 'cat-cod' },
+        h('input', { type: 'checkbox', checked: !!extra[o.codigo], onchange: ev => { if (ev.target.checked) extra[o.codigo] = true; else delete extra[o.codigo]; } }),
+        h('span', null, o.codigo + (o.talla ? ' · ' + o.talla : '') + ' — ' + o.nombre + (o.color ? ' ' + o.color : '') + (o.tiene ? ' (ya tiene foto)' : '')))));
+      if (l.length > 24) lista.appendChild(h('div', { class: 'muted' }, 'Hay más: escribe arriba para encontrarlos.'));
+    };
+    buscar.addEventListener('input', pintarOtros); pintarOtros();
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
     const cuerpo = h('div', null,
       h('div', { class: 'cat-prev' }, h('img', { src: url, alt: 'Vista previa de ' + titulo(x) })),
@@ -164,10 +190,13 @@
       h('div', { class: 'muted' }, Math.round(img.blob.size / 1024) + ' KB · ' + img.ancho + '×' + img.alto + ' px · quedó lista para subir'),
       h('div', { class: 'fuerte', style: { margin: '12px 0 4px' } }, 'Se aplica a estos códigos:'),
       h('div', { class: 'cat-codigos' }, marcas.map(m => h('label', { class: 'cat-cod' }, m.cb, h('span', null, m.i.codigo + (m.i.talla ? ' · ' + m.i.talla : ''))))),
+      h('div', { class: 'fuerte', style: { margin: '14px 0 4px' } }, '¿También es la foto de otra talla u otro código?'),
+      h('div', { class: 'muted', style: { marginBottom: '6px' } }, 'Si en tu inventario otra talla de esta prenda quedó con otro nombre, márcala aquí y en el catálogo saldrán juntas.'),
+      buscar, lista,
       msg);
     const m = UI.modal({ titulo: slot === 2 ? (cambiar ? 'Cambiar segunda foto' : 'Subir segunda foto') : (cambiar ? 'Cambiar foto' : 'Subir foto'), cuerpo, ancho: '520px', alCerrar: () => URL.revokeObjectURL(url), acciones: [{ texto: 'Cancelar', tipo: 'ghost' },
       { texto: 'Subir foto', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
-        const codigos = marcas.filter(z => z.cb.checked).map(z => z.i.codigo);
+        const codigos = marcas.filter(z => z.cb.checked).map(z => z.i.codigo).concat(Object.keys(extra));
         msg.style.display = 'none';
         if (!codigos.length) { msg.textContent = 'Marca al menos un código.'; msg.style.display = ''; return; }
         btn.disabled = true; btn.textContent = 'Subiendo…';

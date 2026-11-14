@@ -306,3 +306,5 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .cat-minis { display: flex; flex-direction: column; gap: 4px; flex: none; }
 .cat-acciones { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .cat-item { align-items: flex-start; }
+
+.cat-otros { max-height: 190px; overflow-y: auto; margin-top: 8px; display: grid; gap: 4px; }
