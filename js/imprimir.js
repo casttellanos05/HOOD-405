@@ -16,9 +16,9 @@ const Informe = (() => {
     const p = HOOD.periodo(db, r.ini, r.fin, hoy);
     const cred = HOOD.listaCreditos(db, hoy), ap = HOOD.listaApartados(db, hoy);
     const porCobrar = HOOD.r2(cred.reduce((a, c) => a + c.saldo, 0)), apSaldo = HOOD.r2(ap.filter(a => a.estado === 'Apartado').reduce((a, x) => a + x.saldo, 0));
-    const paso = modo === 'anio' ? 'mes' : 'dia';
-    const serie = HOOD.serie(db, r.ini, r.fin, paso, hoy).filter(s => s.ini <= hoy);
-    const et = s => (paso === 'mes' ? MES[Number(s.ini.slice(5, 7)) - 1] : modo === 'semana' ? UI.diaSemana(s.ini) + ' ' + s.ini.slice(8) : s.ini.slice(8));
+    const serie = modo === 'anio' ? HOOD.serie(db, r.ini, r.fin, 'mes', hoy).filter(s => s.ini <= hoy) : [];
+    const et = s => MES[Number(s.ini.slice(5, 7)) - 1];
+    const pc = Cats.piezas(db, r.ini, r.fin);
     const cats = Object.keys(p.porCategoria).map(k => ({ c: k, m: p.porCategoria[k] })).sort((x, y) => y.m - x.m);
     const maxCat = Math.max(1, ...cats.map(x => x.m));
     const vend = p.vendedores.slice().sort((a, b) => b.vendido - a.vendido);
@@ -34,8 +34,10 @@ const Informe = (() => {
         kpi('Comprado (reinversión)', money(p.reinversion), 'mercancía para el inventario'),
         kpi('Ticket promedio', money(p.ticketPromedio), 'por venta'),
         kpi('Descuentos dados', money(p.descuentos), 'en el periodo')),
-      h('div', { class: 'inf-sec no-corte' }, h('h2', null, modo === 'anio' ? 'Ventas por mes' : 'Ventas por día'),
-        UI.lineas(serie.map(s => ({ et: et(s), v: [s.vendido, s.cobrado] })), [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#2f7d5b' }], 210)),
+      modo === 'anio' ? h('div', { class: 'inf-sec no-corte' }, h('h2', null, 'Ventas por mes'),
+        UI.lineas(serie.map(s => ({ et: et(s), v: [s.vendido, s.cobrado] })), [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#2f7d5b' }], 210)) : null,
+      h('div', { class: 'inf-sec no-corte' }, h('h2', null, 'Piezas vendidas por categoría'), Cats.grafica(pc, 'Sin ventas en el periodo.'),
+        pc.filas.length ? h('div', { class: 'suave', style: { marginTop: '6px' } }, UI.num(pc.total) + (pc.total === 1 ? ' pieza' : ' piezas') + ' en total · la más vendida: ' + pc.filas[0].categoria) : null),
       h('div', { class: 'inf-dos no-corte' },
         h('div', { class: 'inf-sec' }, h('h2', null, 'Estado de resultados'),
           tabla(fila('Ventas de contado', money(p.contado)), fila('Abonos recibidos', money(p.abonos)), fila('Apartados liquidados', money(p.apartLiq)), fila('Vendido a crédito (por cobrar)', money(p.credito)),

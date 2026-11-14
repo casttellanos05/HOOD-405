@@ -35,12 +35,11 @@
         UI.lineas(meses.map(s => ({ et: MES[Number(s.ini.slice(5, 7)) - 1], v: est.modo === 'anio' ? [s.vendido, s.cobrado, s.neto] : [s.vendido] })),
           est.modo === 'anio' ? [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#8aa4ba' }, { nombre: 'Utilidad neta', color: '#2f7d5b' }] : [{ nombre: 'Vendido', color: '#4c6a84', area: true }], 230),
         h('small', null, 'Cada punto es un mes. Toca un punto para ver el monto.')));
-      if (est.modo !== 'anio') {
-        const serie = HOOD.serie(db, r.ini, r.fin, 'dia', hoy).filter(s => s.ini <= hoy);
-        const et = s => est.modo === 'semana' ? UI.diaSemana(s.ini) + ' ' + s.ini.slice(8) : s.ini.slice(8);
-        root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Movimiento por día · ' + r.etiqueta),
-          UI.lineas(serie.map(s => ({ et: et(s), v: [s.vendido, s.cobrado] })), [{ nombre: 'Vendido', color: '#4c6a84', area: true }, { nombre: 'Cobrado', color: '#2f7d5b' }], 200)));
-      }
+      // Gráfica de barras: ¿de qué categoría se venden más piezas en este periodo?
+      const pc = Cats.piezas(db, r.ini, r.fin);
+      root.appendChild(h('div', { class: 'card' }, h('h3', null, 'Piezas vendidas por categoría · ' + r.etiqueta),
+        Cats.grafica(pc, 'Todavía no hay ventas en este periodo.'),
+        pc.filas.length ? h('small', { class: 'suave' }, UI.num(pc.total) + (pc.total === 1 ? ' pieza' : ' piezas') + ' en total · la más vendida: ' + pc.filas[0].categoria) : null));
 
       // por cobrar (a hoy, no depende del periodo)
       const cred = HOOD.listaCreditos(db, hoy), ap = HOOD.listaApartados(db, hoy);

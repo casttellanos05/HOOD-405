@@ -290,3 +290,15 @@ a.btn { text-decoration: none; display: inline-flex; align-items: center; justif
 .cat-codigos { display: flex; flex-wrap: wrap; gap: 8px; }
 .cat-cod { display: inline-flex; align-items: center; gap: 6px; padding: 7px 10px; border: 1px solid var(--line, #d9dee3); border-radius: 10px; font-weight: 600; cursor: pointer; }
 .ayuda-llave { margin: 6px 0 10px; } .ayuda-llave summary { cursor: pointer; font-weight: 700; } .ayuda-llave ol { margin: 8px 0 0 18px; padding: 0; display: grid; gap: 4px; }
+
+/* ---- Gráfica de barras: piezas vendidas por categoría ---- */
+.barras-cat { display: grid; gap: 10px; margin: 6px 0 8px; }
+.bc-fila { display: grid; grid-template-columns: minmax(84px, 30%) 1fr auto; gap: 10px; align-items: center; }
+.bc-et { font-weight: 700; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bc-tira { height: 20px; background: #e6ebf0; border-radius: 6px; overflow: hidden; }
+.bc-tira div { height: 100%; background: #8aa4ba; border-radius: 6px; transition: width .3s; }
+.bc-fila.lider .bc-tira div { background: #2f3b46; }
+.bc-fila.lider .bc-et { color: #1c2630; }
+.bc-num { font-weight: 800; font-size: 14px; white-space: nowrap; text-align: right; min-width: 64px; }
+.bc-num small { font-weight: 600; color: #6b7681; }
+@media print { .bc-tira, .bc-tira div { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

@@ -49,7 +49,7 @@
   function formNuevo(db) {
     const f = {
       codigo: UI.entrada({ placeholder: 'Ej. P010' }), nombre: UI.entrada({ placeholder: 'Ej. Playera oversize' }),
-      talla: UI.entrada({ placeholder: 'M, G, 32…' }), color: UI.entrada({ placeholder: 'Negro' }),
+      talla: UI.entrada({ placeholder: 'M, G, 32…' }), color: UI.entrada({ placeholder: 'Negro' }), cat: Cats.selector(Store.view(), ''),
       costo: UI.dinero({ placeholder: '0.00' }), precio: UI.dinero({ placeholder: '0.00' }), cant: UI.dinero({ step: '1', placeholder: '0' }), min: UI.dinero({ step: '1', value: '2' }),
       efectivo: h('input', { type: 'checkbox' }), notas: UI.entrada({ placeholder: 'Proveedor, factura…' })
     };
@@ -63,13 +63,16 @@
     ['costo', 'precio', 'cant'].forEach(k => f[k].addEventListener('input', calc)); calc();
     const cuerpo = h('div', null,
       h('div', { class: 'grid2' }, UI.campo('Código', f.codigo), UI.campo('Nombre', f.nombre)),
+      UI.campo('Categoría', f.cat.el, 'Elige una de la lista o crea una nueva.'),
       h('div', { class: 'grid2' }, UI.campo('Talla', f.talla), UI.campo('Color', f.color)),
       h('div', { class: 'grid2' }, UI.campo('Costo por pieza', f.costo), UI.campo('Precio de venta', f.precio)),
       h('div', { class: 'grid2' }, UI.campo('Piezas compradas', f.cant), UI.campo('Stock mínimo (aviso)', f.min)),
       UI.campo('Notas', f.notas), h('label', { class: 'check' }, f.efectivo, 'Se pagó en efectivo (resta de la caja del corte)'), resumen, msg);
     UI.modal({ titulo: 'Nuevo producto', cuerpo, acciones: [{ texto: 'Cancelar', tipo: 'ghost' }, { texto: 'Guardar', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
+      const cat = f.cat.valor();
+      if (!cat) { msg.textContent = 'Elige la categoría del producto (o crea una nueva).'; msg.style.display = ''; return; }
       btn.disabled = true;
-      const r = await hacerConAviso('producto_alta', { codigo: f.codigo.value, nombre: f.nombre.value, cat: '', talla: f.talla.value, color: f.color.value,
+      const r = await hacerConAviso('producto_alta', { codigo: f.codigo.value, nombre: f.nombre.value, cat, talla: f.talla.value, color: f.color.value,
         costo: UI.leerNum(f.costo.value), precio: UI.leerNum(f.precio.value), cant: Math.floor(UI.leerNum(f.cant.value)), min: Math.floor(UI.leerNum(f.min.value)),
         efectivo: f.efectivo.checked, notas: f.notas.value });
       btn.disabled = false;
@@ -84,7 +87,7 @@
     const db = Store.view(), C = HOOD.CPR;
     const compras = db.entradas.filter(e => String(e[HOOD.CE.CODIGO]) === String(p.codigo) && e[HOOD.CE.FECHA] !== '').slice().reverse();
     const f = {
-      nombre: UI.entrada({ value: p.nombre }), talla: UI.entrada({ value: p.talla }), color: UI.entrada({ value: p.color }),
+      nombre: UI.entrada({ value: p.nombre }), talla: UI.entrada({ value: p.talla }), color: UI.entrada({ value: p.color }), cat: Cats.selector(Store.view(), p.cat),
       costo: UI.dinero({ value: p.costo }), precio: UI.dinero({ value: p.precio }), min: UI.dinero({ step: '1', value: p.min }), activo: h('input', { type: 'checkbox', checked: p.activo })
     };
     const msg = h('div', { class: 'aviso mal', style: { display: 'none' } });
@@ -108,6 +111,7 @@
       h('hr', { style: { border: 0, borderTop: '1px solid var(--line)', margin: '16px 0' } }),
       h('h3', null, 'Datos del producto'),
       UI.campo('Nombre', f.nombre),
+      UI.campo('Categoría', f.cat.el),
       h('div', { class: 'grid2' }, UI.campo('Talla', f.talla), UI.campo('Color', f.color)),
       h('div', { class: 'grid3' }, UI.campo('Costo', f.costo), UI.campo('Precio', f.precio), UI.campo('Stock mínimo', f.min)),
       h('label', { class: 'check' }, f.activo, 'Activo (visible para vender)'), msg,
@@ -118,7 +122,7 @@
           h('button', { class: 'btn chico', type: 'button', onclick: () => { m.cerrar(); editarCompra(e); } }, 'Editar'))))) : null);
     const m = UI.modal({ titulo: p.texto, cuerpo, ancho: '640px', acciones: [{ texto: 'Cerrar', tipo: 'ghost' }, { texto: 'Guardar datos', tipo: 'primary', cerrar: false, onclick: async (cerrar, btn) => {
       btn.disabled = true;
-      const r = await Store.hacer('producto_edit', { codigo: p.codigo, nombre: f.nombre.value, cat: p.cat, talla: f.talla.value, color: f.color.value, costo: UI.leerNum(f.costo.value), precio: UI.leerNum(f.precio.value), min: Math.floor(UI.leerNum(f.min.value)), activo: f.activo.checked });
+      const r = await Store.hacer('producto_edit', { codigo: p.codigo, nombre: f.nombre.value, cat: f.cat.valor() || p.cat, talla: f.talla.value, color: f.color.value, costo: UI.leerNum(f.costo.value), precio: UI.leerNum(f.precio.value), min: Math.floor(UI.leerNum(f.min.value)), activo: f.activo.checked });
       btn.disabled = false;
       if (!r.ok) { msg.textContent = r.msg; msg.style.display = ''; return; }
       cerrar(); UI.toast('Producto actualizado', 'ok'); App.refresh();
