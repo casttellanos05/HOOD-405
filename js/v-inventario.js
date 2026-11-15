@@ -138,6 +138,7 @@
       UI.kpi('Valor a costo', money0(activos.reduce((a, p) => a + p.valorCosto, 0)), 'lo que tienes invertido'),
       UI.kpi('Valor a precio', money0(activos.reduce((a, p) => a + p.valorPrecio, 0)), 'si todo se vende'),
       UI.kpi('Agotados', agot, agot ? 'productos sin existencia' : 'nada agotado', agot ? 'ambar' : 'ok')));
+    { const tc = Cats.tarjetaExistencia(inv); if (tc) root.appendChild(tc); }
     const lista = h('div', { class: 'resultados' });
     const chips = h('div', { class: 'fila', style: { marginBottom: '2px' } });
     const cmp = (a, b) => String(a.codigo).localeCompare(String(b.codigo), 'es', { numeric: true });

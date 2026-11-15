@@ -78,5 +78,35 @@
       h('div', { class: 'bc-num' }, UI.num(x.piezas), h('small', null, ' · ' + Math.round(x.pct * 100) + '%')))));
   }
 
-  window.Cats = { clave, lista, canonica, selector, piezas, grafica };
+  /** Existencia por categoría (solo productos activos): piezas, productos, cuántos van bajos y cuántos agotados. De menos a más piezas. */
+  function existencia(inv) {
+    const g = {}, nombres = {};
+    inv.filter(p => p.activo).forEach(p => {
+      const c = String(p.cat || '').trim().replace(/\s+/g, ' ') || 'Sin categoría', k = clave(c);
+      nombres[k] = nombres[k] || {}; nombres[k][c] = (nombres[k][c] || 0) + 1;
+      const x = g[k] || (g[k] = { k, piezas: 0, productos: 0, bajos: 0, agotados: 0 });
+      x.piezas += Math.max(0, p.existencia); x.productos++;
+      if (p.estado === 'AGOTADO') x.agotados++; else if (p.estado === 'BAJO') x.bajos++;
+    });
+    return Object.keys(g).map(k => { const x = g[k], v = nombres[k]; x.categoria = Object.keys(v).sort((a, b) => v[b] - v[a] || a.localeCompare(b, 'es'))[0]; return x; })
+      .sort((a, b) => a.piezas - b.piezas || a.categoria.localeCompare(b.categoria, 'es'));
+  }
+
+  /** Tarjeta "Piezas por categoría" para Inventario: barras de existencia; las categorías con productos bajos o agotados se marcan. */
+  function tarjetaExistencia(inv) {
+    const filas = existencia(inv);
+    if (!filas.length) return null;
+    const max = Math.max(1, ...filas.map(x => x.piezas));
+    return h('div', { class: 'card' }, h('h3', null, 'Piezas por categoría'),
+      h('div', { class: 'barras-cat stock', role: 'img', 'aria-label': 'Piezas disponibles por categoría' }, filas.map((x, i) => h('div', { class: 'bc-fila' + (x.agotados || x.bajos ? ' poco' : '') },
+        h('div', { class: 'bc-et' }, x.categoria),
+        h('div', { class: 'bc-tira' }, h('div', { style: { width: Math.max(2, x.piezas / max * 100) + '%' } })),
+        h('div', { class: 'bc-num' }, UI.num(x.piezas), h('small', null, ' pzs'))))),
+      h('div', { class: 'bc-notas' }, filas.filter(x => x.agotados || x.bajos).map(x => h('div', null, h('strong', null, x.categoria + ': '),
+        [x.agotados ? x.agotados + (x.agotados === 1 ? ' producto agotado' : ' productos agotados') : '', x.bajos ? x.bajos + (x.bajos === 1 ? ' con existencia baja' : ' con existencia baja') : ''].filter(Boolean).join(' · ')))),
+      filas.some(x => x.agotados || x.bajos) ? null : h('small', { class: 'suave' }, 'Ninguna categoría con productos bajos ni agotados.'),
+      h('small', { class: 'suave', style: { display: 'block', marginTop: '6px' } }, 'Ordenadas de menos a más piezas. En ámbar: la categoría tiene productos bajos o agotados.'));
+  }
+
+  window.Cats = { clave, lista, canonica, selector, piezas, grafica, existencia, tarjetaExistencia };
 })();
